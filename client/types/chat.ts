@@ -37,6 +37,23 @@ export type ChatMessage = {
   status: ChatMessageStatus;
   /** Optional reaction emoji from the other side. */
   reaction?: string;
+
+  // --- Lightweight message-management metadata ---
+  /** If set, this message is a reply to the message with this id. */
+  replyToMessageId?: string;
+  /** ISO timestamp the message was last edited (text-kind only). */
+  editedAt?: string;
+  /** ISO timestamp the message was soft-deleted. The bubble is replaced
+   *  with an "Unsent" placeholder instead of being removed, so the chat
+   *  history stays continuous. */
+  deletedAt?: string;
+
+  /** Instagram-style "view once" — the receiver can open the media
+   *  exactly once. After opening, the body is destroyed and the bubble
+   *  shows a "viewed" placeholder. Only applies to image / audio. */
+  viewOnce?: boolean;
+  /** ISO timestamp the receiver opened a view-once message. */
+  viewedAt?: string;
 };
 
 export type Chat = {
@@ -51,4 +68,12 @@ export type Chat = {
   partnerTyping: boolean;
   /** ISO timestamp the chat was created (i.e. the plane was accepted). */
   createdAt: string;
+
+  // --- Per-thread management ---
+  /** ISO timestamp when the user pinned this chat. Pinned chats float to
+   *  the top of the chats list. */
+  pinnedAt?: string;
+  /** When true, the partner is blocked; the chat row renders muted and
+   *  tapping is disabled. */
+  isBlocked?: boolean;
 };

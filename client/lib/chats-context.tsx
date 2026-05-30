@@ -40,6 +40,11 @@ export type SendPayload = {
   imageUri?: string;
   audioUri?: string;
   audioDurationMs?: number;
+  /** If set, the new message will be tagged as a reply to this message. */
+  replyToMessageId?: string;
+  /** Insta-style "view once" — media destroys itself after the first
+   *  open. Ignored for text messages. */
+  viewOnce?: boolean;
 };
 
 type ChatsContextValue = {
@@ -47,8 +52,21 @@ type ChatsContextValue = {
   getChat: (chatId: string) => Chat | undefined;
   acceptPlane: (plane: Plane) => Chat;
   sendMessage: (chatId: string, payload: SendPayload | string) => void;
+  editMessage: (chatId: string, messageId: string, newText: string) => void;
+  deleteMessage: (chatId: string, messageId: string) => void;
+  /** Mark a view-once message as viewed — fires when the receiver
+   *  opens the image / finishes playing the audio. The body is then
+   *  considered destroyed and the bubble renders an "Opened" stub. */
+  markViewed: (chatId: string, messageId: string) => void;
   markChatOpened: (chatId: string) => void;
   addReaction: (chatId: string, messageId: string, emoji: string) => void;
+
+  // ── Per-thread management ──────────────────────────────────────────
+  pinChat: (chatId: string) => void;
+  unpinChat: (chatId: string) => void;
+  deleteChat: (chatId: string) => void;
+  blockChat: (chatId: string) => void;
+  unblockChat: (chatId: string) => void;
 };
 
 const ChatsContext = createContext<ChatsContextValue | null>(null);
@@ -166,6 +184,9 @@ export function ChatsProvider({ children }: { children: ReactNode }) {
         imageUri: p.imageUri,
         audioUri: p.audioUri,
         audioDurationMs: p.audioDurationMs,
+        replyToMessageId: p.replyToMessageId,
+        // view-once only meaningful for media kinds
+        viewOnce: p.viewOnce && kind !== 'text' ? true : undefined,
         createdAt: nowIso(),
         status: 'sending',
       };
@@ -224,6 +245,79 @@ export function ChatsProvider({ children }: { children: ReactNode }) {
     [updateMessage],
   );
 
+  const editMessage = useCallback(
+    (chatId: string, messageId: string, newText: string) => {
+      const trimmed = newText.trim();
+      if (!trimmed) return;
+      updateMessage(chatId, messageId, (m) => ({
+        ...m,
+        text: trimmed,
+        editedAt: nowIso(),
+      }));
+    },
+    [updateMessage],
+  );
+
+  /** Soft-delete — keeps the message in place so reply-quotes that point
+   *  to it still render, but renders the body as "Unsent". */
+  const deleteMessage = useCallback(
+    (chatId: string, messageId: string) => {
+      updateMessage(chatId, messageId, (m) => ({
+        ...m,
+        deletedAt: nowIso(),
+      }));
+    },
+    [updateMessage],
+  );
+
+  /** Mark a view-once message as viewed. Idempotent — second call is a
+   *  no-op so we don't keep updating the timestamp. */
+  const markViewed = useCallback(
+    (chatId: string, messageId: string) => {
+      updateMessage(chatId, messageId, (m) =>
+        m.viewedAt ? m : { ...m, viewedAt: nowIso() },
+      );
+    },
+    [updateMessage],
+  );
+
+  // ── Per-thread management ─────────────────────────────────────────
+  const pinChat = useCallback(
+    (chatId: string) => {
+      updateChat(chatId, (chat) => ({ ...chat, pinnedAt: nowIso() }));
+    },
+    [updateChat],
+  );
+
+  const unpinChat = useCallback(
+    (chatId: string) => {
+      updateChat(chatId, (chat) => ({ ...chat, pinnedAt: undefined }));
+    },
+    [updateChat],
+  );
+
+  const deleteChat = useCallback((chatId: string) => {
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+  }, []);
+
+  const blockChat = useCallback(
+    (chatId: string) => {
+      updateChat(chatId, (chat) => ({
+        ...chat,
+        isBlocked: true,
+        partnerTyping: false,
+      }));
+    },
+    [updateChat],
+  );
+
+  const unblockChat = useCallback(
+    (chatId: string) => {
+      updateChat(chatId, (chat) => ({ ...chat, isBlocked: false }));
+    },
+    [updateChat],
+  );
+
   const getChat = useCallback(
     (chatId: string) => chats.find((c) => c.id === chatId),
     [chats],
@@ -235,10 +329,33 @@ export function ChatsProvider({ children }: { children: ReactNode }) {
       getChat,
       acceptPlane,
       sendMessage,
+      editMessage,
+      deleteMessage,
+      markViewed,
       markChatOpened,
       addReaction,
+      pinChat,
+      unpinChat,
+      deleteChat,
+      blockChat,
+      unblockChat,
     }),
-    [chats, getChat, acceptPlane, sendMessage, markChatOpened, addReaction],
+    [
+      chats,
+      getChat,
+      acceptPlane,
+      sendMessage,
+      editMessage,
+      deleteMessage,
+      markViewed,
+      markChatOpened,
+      addReaction,
+      pinChat,
+      unpinChat,
+      deleteChat,
+      blockChat,
+      unblockChat,
+    ],
   );
 
   return <ChatsContext.Provider value={value}>{children}</ChatsContext.Provider>;

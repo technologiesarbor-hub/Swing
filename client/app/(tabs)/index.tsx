@@ -41,6 +41,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { FriendsCelebration } from '@/components/friends-celebration';
 import { PlaneCard } from '@/components/plane-card';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
@@ -49,6 +50,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
 import { useChats } from '@/lib/chats-context';
 import { MOCK_PLANES } from '@/lib/mock-planes';
+import { useNotifications } from '@/lib/notifications-context';
+import { useSentPlanes } from '@/lib/sent-planes-context';
 import type { Plane } from '@/types/plane';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Plane>);
@@ -74,6 +77,8 @@ export default function HomeScreen() {
   const fadeStyle = useTabFocusFade();
   const router = useRouter();
   const { acceptPlane, chats } = useChats();
+  const { unreadCount } = useNotifications();
+  const { total: sentTotal } = useSentPlanes();
   // Locally rejected ids; combined with accepted-sender ids (derived from
   // `chats`) to filter the inbox. Using `chats` as part of the source of
   // truth means accepts done from the plane-detail screen also propagate
@@ -99,10 +104,32 @@ export default function HomeScreen() {
     router.push(`/profile/${plane.sender.id}`);
   };
 
+  // Friends-celebration overlay shown for 3s between "tap Accept" and
+  // "land in chat". The chat itself is created synchronously; we just
+  // hold the celebration card on screen before navigating.
+  const [celebrationFor, setCelebrationFor] = useState<{
+    plane: Plane;
+    chatId: string;
+  } | null>(null);
+
   const handleAccept = (plane: Plane) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const chat = acceptPlane(plane);
-    router.push(`/chat/${chat.id}`);
+    setCelebrationFor({ plane, chatId: chat.id });
+  };
+
+  const dismissCelebration = () => {
+    // Cancel-style exit — close the dialog, stay on home. The chat
+    // thread has already been created, so the user can find it later
+    // from the Chats tab whenever they're ready.
+    setCelebrationFor(null);
+  };
+
+  const startCelebrationChat = () => {
+    if (!celebrationFor) return;
+    const { chatId } = celebrationFor;
+    setCelebrationFor(null);
+    router.push(`/chat/${chatId}`);
   };
 
   const handleReject = (plane: Plane) => {
@@ -176,18 +203,53 @@ export default function HomeScreen() {
             <Ionicons name="paper-plane" size={18} color={c.tint} />
           </View>
 
-          <Pressable hitSlop={10} style={styles.bellButton}>
-            <Ionicons name="notifications-outline" size={24} color={c.text} />
-            <View style={[styles.badge, { backgroundColor: c.danger }]}>
-              <ThemedText style={styles.badgeText}>3</ThemedText>
-            </View>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              hitSlop={10}
+              style={styles.headerIconBtn}
+              onPress={() => router.push('/planes')}
+            >
+              <Ionicons name="paper-plane-outline" size={22} color={c.text} />
+              {sentTotal > 0 ? (
+                <View
+                  style={[styles.badge, { backgroundColor: c.tint }]}
+                >
+                  <ThemedText style={styles.badgeText}>
+                    {sentTotal > 9 ? '9+' : sentTotal}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </Pressable>
+
+            <Pressable
+              hitSlop={10}
+              style={styles.headerIconBtn}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={24}
+                color={c.text}
+              />
+              {unreadCount > 0 ? (
+                <View style={[styles.badge, { backgroundColor: c.danger }]}>
+                  <ThemedText style={styles.badgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </Pressable>
+          </View>
         </Animated.View>
       </TabSwipeRegion>
 
       {/* Body fills the space between header and bottom-tab-bar, and
-          vertically centres the (carousel + dots) block inside it. */}
-      <View style={styles.body}>
+          vertically centres the (carousel + dots) block inside it.
+          Wrapped in a TabSwipeRegion so the empty space above/below the
+          carousel — plus the area around the side arrows — is a tab-swipe
+          surface. The native FlatList still wins touches that start on a
+          card itself, so card-to-card paging is unaffected. */}
+      <TabSwipeRegion currentRoute="/" style={styles.body}>
       {/* Card carousel — horizontal paged FlatList. */}
       <View style={styles.carouselContainer}>
         {visiblePlanes.length === 0 ? (
@@ -265,7 +327,7 @@ export default function HomeScreen() {
       {/* Animated page dots — each dot's width / colour interpolates as
           `scrollX` slides through page boundaries. Wrapped in a TabSwipeRegion
           so the bottom band below the cards is also a tab-swipe surface. */}
-      <TabSwipeRegion currentRoute="/" style={styles.dotsSwipe}>
+      <View style={styles.dotsSwipe}>
         <View style={styles.dots}>
           {visiblePlanes.map((_, i) => (
             <PageDot
@@ -278,8 +340,18 @@ export default function HomeScreen() {
             />
           ))}
         </View>
-      </TabSwipeRegion>
       </View>
+      </TabSwipeRegion>
+
+      {/* Mini-profile dialog shown after accepting a plane. The chat
+          thread is already created; the user decides whether to dive
+          into it now or dismiss and find it in the Chats tab later. */}
+      <FriendsCelebration
+        visible={celebrationFor !== null}
+        sender={celebrationFor?.plane.sender ?? null}
+        onDismiss={dismissCelebration}
+        onStartChat={startCelebrationChat}
+      />
     </SafeAreaView>
   );
 }
@@ -357,7 +429,12 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
     opacity: 0.55,
   },
-  bellButton: { padding: 4 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  headerIconBtn: { padding: 4 },
   badge: {
     position: 'absolute',
     top: 0,
@@ -431,7 +508,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   dotsSwipe: {
-    // Fixed-height swipe band wrapping the page dots; no flex.
+    // Extra vertical padding turns the dots into a wider, more forgiving
+    // swipe target. The whole body is also a TabSwipeRegion now, but this
+    // band reads as the obvious "swipe here" spot.
+    paddingVertical: Spacing.sm,
   },
   dots: {
     flexDirection: 'row',

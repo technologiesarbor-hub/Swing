@@ -82,9 +82,12 @@ export function PlaneCard({
           </View>
         </View>
 
+        {/* Corner pill — gender flag (M / F / NB). Falls back to the
+            age string only when no gender has been set, so older mock
+            entries don't break. */}
         <View style={[styles.agePill, { backgroundColor: c.surfaceAlt }]}>
           <ThemedText style={[styles.ageText, { color: c.textMuted }]}>
-            {plane.sender.ageBadge}
+            {plane.sender.gender ?? plane.sender.ageBadge}
           </ThemedText>
         </View>
       </View>

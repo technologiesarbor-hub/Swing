@@ -7,18 +7,28 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import {
+  FlatList,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { Avatar } from '@/components/avatar';
+import { ChatActionMenu } from '@/components/chat-action-menu';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
 import { useChats } from '@/lib/chats-context';
+import { useUserSettings } from '@/lib/user-settings-context';
 import type { Chat } from '@/types/chat';
 
 export default function ChatsScreen() {
@@ -26,18 +36,57 @@ export default function ChatsScreen() {
   const c = Colors[scheme];
   const router = useRouter();
   const { chats } = useChats();
+  const { user } = useUserSettings();
   const fadeStyle = useTabFocusFade();
 
-  if (chats.length === 0) {
-    return (
-      <ScreenPlaceholder
-        icon="chatbubble-outline"
-        title="No chats yet"
-        subtitle="Once you accept a paper plane, your conversations will land here."
-        currentRoute="/chats"
-      />
-    );
-  }
+  // Story entry — pushes the full-screen `/status` route where the
+  // user can add or edit their status.
+  const openStatusScreen = () => {
+    Haptics.selectionAsync();
+    router.push('/status');
+  };
+
+  // Long-press target for the chat-action sheet. `null` hides the sheet.
+  const [actionChatId, setActionChatId] = useState<string | null>(null);
+  // WhatsApp-style search bar — filters by partner name OR message text.
+  const [query, setQuery] = useState('');
+
+  // Sort: pinned chats first (newest pin on top), then by last-message
+  // freshness. Memoised so the FlatList doesn't re-sort every render.
+  const sortedChats = useMemo(() => {
+    const lastMsgTs = (chat: Chat) => {
+      const m = chat.messages[chat.messages.length - 1];
+      return m ? new Date(m.createdAt).getTime() : new Date(chat.createdAt).getTime();
+    };
+    return [...chats].sort((a, b) => {
+      if (a.pinnedAt && !b.pinnedAt) return -1;
+      if (!a.pinnedAt && b.pinnedAt) return 1;
+      if (a.pinnedAt && b.pinnedAt) {
+        return new Date(b.pinnedAt).getTime() - new Date(a.pinnedAt).getTime();
+      }
+      return lastMsgTs(b) - lastMsgTs(a);
+    });
+  }, [chats]);
+
+  // Filter on `query` — match against partner name OR any non-deleted
+  // message text. Case-insensitive, trimmed.
+  const visibleChats = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sortedChats;
+    return sortedChats.filter((chat) => {
+      if (chat.partner.name.toLowerCase().includes(q)) return true;
+      return chat.messages.some(
+        (m) =>
+          m.kind === 'text' &&
+          !m.deletedAt &&
+          m.text.toLowerCase().includes(q),
+      );
+    });
+  }, [sortedChats, query]);
+
+  // NOTE: we no longer short-circuit on `chats.length === 0` here — we
+  // still want to render the header (and its status-upload + button) on
+  // the empty state. The body switches to a placeholder instead.
 
   return (
     <SafeAreaView
@@ -55,48 +104,198 @@ export default function ChatsScreen() {
               {chats.length}
             </ThemedText>
           </View>
+
+          {/* Story button — profile picture with a "+" badge, exactly
+              like Instagram's "Your story". Opens the status sheet
+              where the user can choose Photo / Video, upload, or view
+              and edit an existing status. */}
+          <Pressable
+            onPress={openStatusScreen}
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.storyBtn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Avatar
+              name={user.name}
+              uri={user.avatarUri}
+              size={36}
+              hasStatus={(user.statusItems?.length ?? 0) > 0}
+            />
+            <View
+              style={[
+                styles.storyPlus,
+                {
+                  backgroundColor: c.tint,
+                  borderColor: c.background,
+                },
+              ]}
+            >
+              <Ionicons name="add" size={12} color="#fff" />
+            </View>
+          </Pressable>
         </Animated.View>
       </TabSwipeRegion>
 
+      {/* WhatsApp-style search bar — only rendered when there are
+          actual chats to filter, otherwise we let the empty-state
+          placeholder breathe. */}
+      {chats.length > 0 ? (
+        <Animated.View style={[styles.searchWrap, fadeStyle]}>
+          <View
+            style={[
+              styles.searchBox,
+              { backgroundColor: c.surfaceAlt, borderColor: c.border },
+            ]}
+          >
+            <Ionicons name="search" size={16} color={c.textMuted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search chats or messages"
+              placeholderTextColor={c.textSubtle}
+              style={[styles.searchInput, { color: c.text }]}
+              returnKeyType="search"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {query.length > 0 ? (
+              <Pressable hitSlop={8} onPress={() => setQuery('')}>
+                <Ionicons
+                  name="close-circle"
+                  size={16}
+                  color={c.textMuted}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        </Animated.View>
+      ) : null}
+
       <TabSwipeRegion currentRoute="/chats" style={styles.fill}>
         <Animated.View style={[styles.fill, fadeStyle]}>
-          <FlatList
-            data={chats}
-            keyExtractor={(c) => c.id}
-            renderItem={({ item }) => (
-              <ChatRow
-                chat={item}
-                onPress={() => router.push(`/chat/${item.id}`)}
-              />
-            )}
-            ItemSeparatorComponent={() => (
-              <View
-                style={[styles.separator, { backgroundColor: c.border }]}
-              />
-            )}
-            contentContainerStyle={styles.listContent}
-          />
+          {chats.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={32}
+                  color={c.tint}
+                />
+              </View>
+              <ThemedText style={styles.emptyTitle}>No chats yet</ThemedText>
+              <ThemedText
+                style={[styles.emptySub, { color: c.textMuted }]}
+              >
+                Once you accept a paper plane, your conversations will land
+                here. In the meantime — share a status from the
+                <ThemedText style={{ fontWeight: '700' }}> + </ThemedText>
+                up top.
+              </ThemedText>
+            </View>
+          ) : (
+            <FlatList
+              data={visibleChats}
+              keyExtractor={(c) => c.id}
+              renderItem={({ item }) => (
+                <ChatRow
+                  chat={item}
+                  onPress={() => {
+                    if (item.isBlocked) {
+                      // Blocked chats stay in the list but tapping the row
+                      // is a no-op — only long-press is available.
+                      Haptics.notificationAsync(
+                        Haptics.NotificationFeedbackType.Warning,
+                      );
+                      setActionChatId(item.id);
+                      return;
+                    }
+                    router.push(`/chat/${item.id}`);
+                  }}
+                  onLongPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setActionChatId(item.id);
+                  }}
+                />
+              )}
+              ItemSeparatorComponent={() => (
+                <View
+                  style={[styles.separator, { backgroundColor: c.border }]}
+                />
+              )}
+              ListEmptyComponent={() => (
+                <View style={styles.searchEmpty}>
+                  <Ionicons
+                    name="search-outline"
+                    size={28}
+                    color={c.textMuted}
+                  />
+                  <ThemedText style={styles.searchEmptyTitle}>
+                    No matches
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.searchEmptySub, { color: c.textMuted }]}
+                  >
+                    Try a different name or word.
+                  </ThemedText>
+                </View>
+              )}
+              contentContainerStyle={styles.listContent}
+            />
+          )}
         </Animated.View>
       </TabSwipeRegion>
+
+      <ChatActionMenu
+        chatId={actionChatId}
+        visible={actionChatId !== null}
+        onClose={() => setActionChatId(null)}
+      />
     </SafeAreaView>
   );
 }
 
-function ChatRow({ chat, onPress }: { chat: Chat; onPress: () => void }) {
+function ChatRow({
+  chat,
+  onPress,
+  onLongPress,
+}: {
+  chat: Chat;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   const lastMessage = chat.messages[chat.messages.length - 1];
   const lastFromMe = lastMessage?.authorId === 'me';
+  const isPinned = !!chat.pinnedAt;
+  const isBlocked = !!chat.isBlocked;
+
   // Body for the preview line — falls back to icon-prefixed labels for
-  // non-text messages.
-  const previewBody = lastMessage
-    ? lastMessage.kind === 'image'
-      ? '📷 Photo'
-      : lastMessage.kind === 'audio'
-        ? '🎤 Voice message'
-        : lastMessage.text
-    : 'Say hi 👋';
+  // non-text messages. View-once labels signal the tombstone state so
+  // recipients can tell at a glance what's waiting in the thread.
+  let previewBody: string;
+  if (!lastMessage) {
+    previewBody = 'Say hi 👋';
+  } else if (lastMessage.deletedAt) {
+    previewBody = 'Unsent message';
+  } else if (lastMessage.kind === 'image') {
+    previewBody = lastMessage.viewOnce
+      ? lastMessage.viewedAt
+        ? '📷 Photo · Opened'
+        : '📷 Photo · View once'
+      : '📷 Photo';
+  } else if (lastMessage.kind === 'audio') {
+    previewBody = lastMessage.viewOnce
+      ? lastMessage.viewedAt
+        ? '🎤 Voice · Opened'
+        : '🎤 Voice · Listen once'
+      : '🎤 Voice message';
+  } else {
+    previewBody = lastMessage.text;
+  }
   const preview = lastMessage && lastFromMe
     ? `You: ${previewBody}`
     : previewBody;
@@ -105,30 +304,33 @@ function ChatRow({ chat, onPress }: { chat: Chat; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={320}
       style={({ pressed }) => [
         styles.row,
         { backgroundColor: pressed ? c.surfaceAlt : 'transparent' },
+        isBlocked && { opacity: 0.55 },
       ]}
     >
-      <View style={[styles.avatar, { backgroundColor: c.tintMuted }]}>
-        <ThemedText style={[styles.avatarInitial, { color: c.tintPressed }]}>
-          {chat.partner.name.charAt(0).toUpperCase()}
-        </ThemedText>
-        {chat.partner.onlineNow ? (
-          <View
-            style={[
-              styles.onlineDot,
-              { backgroundColor: c.success, borderColor: c.background },
-            ]}
-          />
-        ) : null}
-      </View>
+      <Avatar
+        uri={chat.partner.avatarUrl}
+        name={chat.partner.name}
+        size={56}
+        hasStatus={!isBlocked && chat.partner.hasStatus}
+        online={!isBlocked && chat.partner.onlineNow}
+      />
 
       <View style={styles.rowText}>
         <View style={styles.rowTop}>
           <ThemedText style={styles.rowName} numberOfLines={1}>
             {chat.partner.name}
           </ThemedText>
+          {isPinned ? (
+            <Ionicons name="pin" size={14} color={c.textMuted} />
+          ) : null}
+          {isBlocked ? (
+            <Ionicons name="ban-outline" size={14} color={c.danger} />
+          ) : null}
           <ThemedText style={[styles.rowTime, { color: c.textMuted }]}>
             {ts}
           </ThemedText>
@@ -140,14 +342,18 @@ function ChatRow({ chat, onPress }: { chat: Chat; onPress: () => void }) {
             style={[
               styles.rowPreview,
               {
-                color: chat.unreadCount > 0 ? c.text : c.textMuted,
-                fontWeight: chat.unreadCount > 0 ? '600' : '400',
+                color: chat.unreadCount > 0 && !isBlocked ? c.text : c.textMuted,
+                fontWeight: chat.unreadCount > 0 && !isBlocked ? '600' : '400',
               },
             ]}
           >
-            {chat.partnerTyping ? 'typing…' : preview}
+            {isBlocked
+              ? 'Blocked'
+              : chat.partnerTyping
+                ? 'typing…'
+                : preview}
           </ThemedText>
-          {chat.unreadCount > 0 ? (
+          {chat.unreadCount > 0 && !isBlocked ? (
             <View style={[styles.unreadBadge, { backgroundColor: c.tint }]}>
               <ThemedText style={styles.unreadBadgeText}>
                 {chat.unreadCount}
@@ -197,13 +403,78 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  storyBtn: {
+    marginLeft: 'auto',
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyPlus: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
+  searchWrap: {
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.sm,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: Radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 2,
+  },
+  searchEmpty: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl * 2,
+    gap: 6,
+  },
+  searchEmptyTitle: { fontSize: 15, fontWeight: '700', marginTop: 4 },
+  searchEmptySub: { fontSize: 13 },
+
+  // Full empty state (zero chats at all) — sits below the header so the
+  // status uploader stays accessible.
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.xl,
+  },
+  emptyIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
+  emptyTitle: { fontSize: 18, fontWeight: '700' },
+  emptySub: { fontSize: 14, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
+    flexGrow: 1,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 60 + Spacing.md,
+    // Full-width — extends across the avatar column too, so the divider
+    // visually "covers till" the avatar circle (per user request).
   },
   row: {
     flexDirection: 'row',
@@ -213,27 +484,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     borderRadius: Radii.lg,
   },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: Radii.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  avatarInitial: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-  },
   rowText: {
     flex: 1,
     gap: 4,
@@ -241,7 +491,7 @@ const styles = StyleSheet.create({
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: 6,
   },
   rowName: {
     flex: 1,

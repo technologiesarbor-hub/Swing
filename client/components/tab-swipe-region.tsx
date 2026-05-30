@@ -54,18 +54,29 @@ export function TabSwipeRegion({ currentRoute, children, style }: Props) {
   };
 
   // Tuned thresholds:
-  //   activeOffsetX [-20, 20] → only kicks in after 20px horizontal travel
-  //   failOffsetY  [-15, 15]  → bails if movement is mostly vertical
-  //   onEnd threshold = 50px → past 50px → commit to the swipe
+  //   activeOffsetX [-14, 14] → kicks in after 14px horizontal travel
+  //                             (snappier than before, still ignores taps)
+  //   failOffsetY  [-12, 12]  → bails if movement is mostly vertical
+  //   onEnd threshold = 36px → past 36px OR fast velocity → commit
+  //
+  // We also commit on flick velocity so a quick flick over a small distance
+  // still switches tabs (Instagram-like feel).
   const pan = Gesture.Pan()
-    .activeOffsetX([-20, 20])
-    .failOffsetY([-15, 15])
+    .activeOffsetX([-14, 14])
+    .failOffsetY([-12, 12])
     .onEnd((e) => {
       'worklet';
-      const SWIPE_THRESHOLD = 50;
-      if (e.translationX < -SWIPE_THRESHOLD) {
+      const SWIPE_DIST = 36;
+      const FLICK_VEL = 600;
+      if (
+        e.translationX < -SWIPE_DIST ||
+        (e.velocityX < -FLICK_VEL && e.translationX < -10)
+      ) {
         runOnJS(navigateTo)(1);
-      } else if (e.translationX > SWIPE_THRESHOLD) {
+      } else if (
+        e.translationX > SWIPE_DIST ||
+        (e.velocityX > FLICK_VEL && e.translationX > 10)
+      ) {
         runOnJS(navigateTo)(-1);
       }
     });

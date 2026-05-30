@@ -19,15 +19,14 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
-  KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import Animated, {
@@ -49,6 +48,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
 import { usePlaneBalance } from '@/lib/plane-balance-context';
 import { PLANE_ICON_ROTATION_OFFSET, planePath } from '@/lib/plane-path';
+import { useSentPlanes } from '@/lib/sent-planes-context';
 
 const MAX_LENGTH = 200;
 
@@ -56,10 +56,19 @@ export default function SendScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { count, spendOne, add } = usePlaneBalance();
+  const { recordSent } = useSentPlanes();
   const fadeStyle = useTabFocusFade();
 
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  // The compose modal opens when the user taps the placeholder card.
+  // It hosts the actual TextInput + X / Send buttons. Animation still
+  // plays on the main tab after we dismiss the modal.
+  const [composerOpen, setComposerOpen] = useState(false);
+  const composerInputRef = useRef<TextInput | null>(null);
+  // Captured at send time so the animation completion handler still has
+  // it after the input was cleared.
+  const pendingMessageRef = useRef('');
 
   // Animation shared values
   const cardScale = useSharedValue(1);
@@ -117,6 +126,12 @@ export default function SendScreen() {
     // Spend the plane only AFTER the flight, so the animation can't be
     // interrupted by the count hitting 0 and unmounting the animated tree.
     spendOne();
+    // Record the outgoing plane so it shows up in /planes and the
+    // profile-tab "Planes" segment.
+    if (pendingMessageRef.current) {
+      recordSent(pendingMessageRef.current);
+      pendingMessageRef.current = '';
+    }
     cardScale.value = 1;
     cardOpacity.value = 1;
     cardRotate.value = 0;
@@ -133,7 +148,11 @@ export default function SendScreen() {
     if (count <= 0) return;
 
     setIsSending(true);
+    pendingMessageRef.current = message.trim();
     Keyboard.dismiss();
+    // Close the composer BEFORE the animation kicks in so the user sees
+    // the fold-and-fly happening on the main tab card.
+    setComposerOpen(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     // PHASE 1 (0–500ms): the paper folds — scales down, rotates, fades out.
@@ -183,6 +202,19 @@ export default function SendScreen() {
     add(5);
   };
 
+  const openComposer = () => {
+    if (isSending || count <= 0) return;
+    Haptics.selectionAsync();
+    setComposerOpen(true);
+  };
+
+  // Auto-focus the textarea the moment the composer modal mounts.
+  useEffect(() => {
+    if (!composerOpen) return;
+    const t = setTimeout(() => composerInputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
+  }, [composerOpen]);
+
   return (
     <SafeAreaView edges={['top']} style={[styles.root, { backgroundColor: c.background }]}>
       {/* Header is its own swipe surface — swiping over the title / balance
@@ -199,93 +231,219 @@ export default function SendScreen() {
       {count <= 0 ? (
         <OutOfPlanes onWatchAd={handleWatchAd} />
       ) : (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.flex}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            {/* Wrap body in a TabSwipeRegion so any horizontal pan over the
-                card / button area switches tabs. Vertical drags and taps
-                still propagate to the TextInput / Send button — Pan only
-                activates after 20px horizontal travel with <15px vertical
-                drift. */}
-            <TabSwipeRegion currentRoute="/send" style={styles.flex}>
-              <Animated.View style={[styles.body, fadeStyle]}>
-              {/* Paper card + plane overlay share the same area so the
-                  fold-then-fly animation reads as a single transformation. */}
-              <View style={styles.cardArea}>
-                <Animated.View
-                  style={[
-                    styles.paper,
-                    {
-                      backgroundColor: c.surface,
-                      borderColor: c.border,
-                    },
-                    cardStyle,
-                  ]}
-                >
-                  <TextInput
-                    value={message}
-                    onChangeText={setMessage}
-                    placeholder="Write something kind, weird, or true..."
-                    placeholderTextColor={c.textSubtle}
-                    multiline
-                    maxLength={MAX_LENGTH}
-                    editable={!isSending}
-                    autoFocus={false}
-                    textAlignVertical="top"
-                    style={[styles.input, { color: c.text }]}
-                  />
-                  <ThemedText style={[styles.counter, { color: c.textMuted }]}>
-                    {message.length} / {MAX_LENGTH}
-                  </ThemedText>
-                </Animated.View>
-
-                {/* Dotted curvy trail draws itself behind the flying plane. */}
-                <Animated.View style={[styles.trailLayer, trailLayerStyle]}>
-                  <PlaneTrail progress={flyProgress} color={c.tint} />
-                </Animated.View>
-
-                <Animated.View style={[styles.planeOverlay, planeStyle]}>
-                  <Ionicons name="paper-plane" size={80} color={c.tint} />
-                </Animated.View>
-              </View>
-
-              <Pressable
-                onPress={handleSend}
-                disabled={!message.trim() || isSending}
-                style={({ pressed }) => [
-                  styles.sendButton,
+        // Wrap body in a TabSwipeRegion so any horizontal pan over the
+        // card area switches tabs. Vertical drags and taps still pass
+        // through to the Pressable card.
+        <TabSwipeRegion currentRoute="/send" style={styles.flex}>
+          <Animated.View style={[styles.body, fadeStyle]}>
+            {/* Paper card + plane overlay share the same area so the
+                fold-then-fly animation reads as a single transformation. */}
+            <View style={styles.cardArea}>
+              <Animated.View
+                style={[
+                  styles.paper,
                   {
-                    backgroundColor:
-                      !message.trim() || isSending ? c.surfaceAlt : c.tint,
-                    opacity: pressed ? 0.85 : 1,
+                    backgroundColor: c.surface,
+                    borderColor: c.border,
                   },
+                  cardStyle,
                 ]}
               >
-                <Ionicons
-                  name="paper-plane"
-                  size={18}
-                  color={!message.trim() || isSending ? c.textSubtle : '#fff'}
-                />
-                <ThemedText
-                  style={[
-                    styles.sendLabel,
-                    {
-                      color: !message.trim() || isSending ? c.textSubtle : '#fff',
-                    },
-                  ]}
+                {/* The card is now a tap-target — tapping anywhere on it
+                    opens the full-screen composer. No inline Send button
+                    anymore. */}
+                <Pressable
+                  onPress={openComposer}
+                  disabled={isSending}
+                  style={styles.cardPress}
                 >
-                  Send
-                </ThemedText>
-              </Pressable>
+                  {message.trim().length === 0 ? (
+                    <View style={styles.cardEmpty}>
+                      <Ionicons
+                        name="create-outline"
+                        size={28}
+                        color={c.textSubtle}
+                      />
+                      <ThemedText
+                        style={[styles.cardEmptyTitle, { color: c.text }]}
+                      >
+                        Tap to write
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.cardEmptyHint, { color: c.textMuted }]}
+                      >
+                        Something kind, weird, or true.
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <>
+                      <ThemedText
+                        style={[styles.cardPreview, { color: c.text }]}
+                        numberOfLines={8}
+                      >
+                        {message}
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.counter, { color: c.textMuted }]}
+                      >
+                        {message.length} / {MAX_LENGTH}
+                      </ThemedText>
+                    </>
+                  )}
+                </Pressable>
               </Animated.View>
-            </TabSwipeRegion>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+
+              {/* Dotted curvy trail draws itself behind the flying plane. */}
+              <Animated.View style={[styles.trailLayer, trailLayerStyle]}>
+                <PlaneTrail progress={flyProgress} color={c.tint} />
+              </Animated.View>
+
+              <Animated.View style={[styles.planeOverlay, planeStyle]}>
+                <Ionicons name="paper-plane" size={80} color={c.tint} />
+              </Animated.View>
+            </View>
+          </Animated.View>
+        </TabSwipeRegion>
       )}
+
+      {/* Full-screen composer modal — only mounted when open so its
+          inputs/keyboard listeners don't interfere with the main tab. */}
+      <ComposerModal
+        visible={composerOpen}
+        message={message}
+        onChange={setMessage}
+        onClose={() => {
+          Keyboard.dismiss();
+          setComposerOpen(false);
+        }}
+        onSend={handleSend}
+        inputRef={composerInputRef}
+        canSend={message.trim().length > 0 && !isSending}
+      />
     </SafeAreaView>
+  );
+}
+
+// ── Composer modal ──────────────────────────────────────────────────────────
+
+function ComposerModal({
+  visible,
+  message,
+  onChange,
+  onClose,
+  onSend,
+  inputRef,
+  canSend,
+}: {
+  visible: boolean;
+  message: string;
+  onChange: (next: string) => void;
+  onClose: () => void;
+  onSend: () => void;
+  inputRef: React.MutableRefObject<TextInput | null>;
+  canSend: boolean;
+}) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+
+  // Track the keyboard height manually instead of relying on
+  // `KeyboardAvoidingView` (which fights with iOS' modal presentation
+  // and used to leave the X / Send buttons hidden behind the keyboard).
+  // We pad the bottom of the modal by exactly the keyboard height so
+  // the action bar always rides just above the on-screen keyboard.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    if (!visible) {
+      setKbHeight(0);
+      return;
+    }
+    const showEvt =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      setKbHeight(e.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      // Full-screen on both platforms — formSheet on iOS has its own
+      // keyboard handling that fought with ours.
+      presentationStyle="fullScreen"
+      transparent={false}
+    >
+      <SafeAreaView
+        edges={['top']}
+        style={[styles.composerRoot, { backgroundColor: c.background }]}
+      >
+        <View style={[styles.flex, { paddingBottom: kbHeight }]}>
+          <View
+            style={[
+              styles.composerPaper,
+              { backgroundColor: c.surface, borderColor: c.border },
+            ]}
+          >
+            <TextInput
+              ref={inputRef}
+              value={message}
+              onChangeText={onChange}
+              placeholder="Write something kind, weird, or true..."
+              placeholderTextColor={c.textSubtle}
+              multiline
+              maxLength={MAX_LENGTH}
+              textAlignVertical="top"
+              style={[styles.composerInput, { color: c.text }]}
+            />
+            {/* Char counter — tucked into the absolute bottom-right
+                corner of the paper so the input itself gets full width. */}
+            <ThemedText
+              style={[styles.counterCorner, { color: c.textMuted }]}
+            >
+              {message.length}/{MAX_LENGTH}
+            </ThemedText>
+          </View>
+
+          {/* Bottom bar — X (cancel) on the left, send arrow on the
+              right. No labels, just iconography. */}
+          <View style={styles.composerBar}>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.composerIconBtn,
+                { backgroundColor: c.surfaceAlt, borderColor: c.border },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons name="close" size={22} color={c.text} />
+            </Pressable>
+
+            <Pressable
+              onPress={onSend}
+              disabled={!canSend}
+              style={({ pressed }) => [
+                styles.composerSendBtn,
+                {
+                  backgroundColor: canSend ? c.tint : c.borderStrong,
+                  opacity: pressed && canSend ? 0.85 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="paper-plane" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -362,11 +520,21 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
-  input: {
+  cardPress: {
     flex: 1,
+    minHeight: 200,
+    justifyContent: 'center',
+  },
+  cardEmpty: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  cardEmptyTitle: { fontSize: 18, fontWeight: '700' },
+  cardEmptyHint: { fontSize: 13 },
+  cardPreview: {
     fontSize: 18,
     lineHeight: 26,
-    minHeight: 200,
+    minHeight: 100,
   },
   counter: {
     alignSelf: 'flex-end',
@@ -392,23 +560,67 @@ const styles = StyleSheet.create({
     right: 0,
     pointerEvents: 'none',
   },
-  sendButton: {
+  // Composer modal
+  composerRoot: { flex: 1 },
+  composerPaper: {
+    flex: 1,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderRadius: Radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    // Tight padding so the typing area gets maximum room — counter
+    // sits in the corner absolutely, not inline.
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: 22, // leave just enough room for the corner counter
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  composerInput: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 24,
+    padding: 0,
+    margin: 0,
+  },
+  counterCorner: {
+    position: 'absolute',
+    right: Spacing.sm + 2,
+    bottom: 4,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  composerBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    paddingTop: Spacing.xs,
+  },
+  composerIconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: 16,
-    borderRadius: Radii.pill,
-    marginTop: Spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  composerSendBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
-  },
-  sendLabel: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   // Empty state
   emptyBody: {

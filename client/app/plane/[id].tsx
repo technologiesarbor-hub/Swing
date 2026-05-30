@@ -4,29 +4,58 @@
  * Shows the full sender info + the full (un-trimmed) message + the same
  * accept/reject actions that were on the card. Accepting from here
  * goes straight into the chat thread.
+ *
+ * Read-only variant:
+ *   The same route is reused when opening one of the user's OWN sent
+ *   planes from the /planes outbox. In that mode (`?readOnly=1`) we
+ *   skip the accept/reject bar and render the recipient + delivery
+ *   status instead of the sender.
  */
 
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { FriendsCelebration } from '@/components/friends-celebration';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useChats } from '@/lib/chats-context';
 import { findPlaneById } from '@/lib/mock-planes';
+import { useSentPlanes } from '@/lib/sent-planes-context';
+import type { SentPlane, SentPlaneStatus } from '@/types/sent-plane';
 
 export default function PlaneDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, readOnly } = useLocalSearchParams<{
+    id: string;
+    readOnly?: string;
+  }>();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
   const { acceptPlane } = useChats();
+  const { sentPlanes } = useSentPlanes();
+  // Friends celebration sits between "Accept" and "/chat" — same UX
+  // as the home carousel accept. NOTE: this `useState` must live above
+  // any early returns or React will yell about hook-order changes.
+  const [celebrationChatId, setCelebrationChatId] = useState<string | null>(
+    null,
+  );
 
-  const plane = id ? findPlaneById(id) : undefined;
+  // Try the inbound mock list first; fall back to the user's own outbox
+  // if `readOnly=1` is set (or if the id matches an outgoing plane).
+  const incoming = id ? findPlaneById(id) : undefined;
+  const outgoing = id ? sentPlanes.find((p) => p.id === id) : undefined;
+  const isReadOnly = readOnly === '1' || (!incoming && !!outgoing);
 
+  if (isReadOnly && outgoing) {
+    return <SentPlaneDetail plane={outgoing} />;
+  }
+
+  const plane = incoming;
   if (!plane) {
     return (
       <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
@@ -45,9 +74,24 @@ export default function PlaneDetailScreen() {
   const handleAccept = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const chat = acceptPlane(plane);
+    setCelebrationChatId(chat.id);
+  };
+
+  const dismissCelebration = () => {
+    // Cancel-style exit — drop the dialog and bounce back to home.
+    // The chat has already been created, so the user can find it in
+    // the Chats tab later.
+    setCelebrationChatId(null);
+    router.back();
+  };
+
+  const startCelebrationChat = () => {
+    if (!celebrationChatId) return;
+    const chatId = celebrationChatId;
+    setCelebrationChatId(null);
     // Replace so the back button from chat lands on home, not on this
     // intermediate detail screen.
-    router.replace(`/chat/${chat.id}`);
+    router.replace(`/chat/${chatId}`);
   };
 
   const handleReject = () => {
@@ -168,9 +212,229 @@ export default function PlaneDetailScreen() {
           </ThemedText>
         </Pressable>
       </View>
+
+      {/* Friends dialog — user picks whether to open the chat now or
+          dismiss and continue browsing. No auto-navigation. */}
+      <FriendsCelebration
+        visible={celebrationChatId !== null}
+        sender={plane.sender}
+        onDismiss={dismissCelebration}
+        onStartChat={startCelebrationChat}
+      />
     </SafeAreaView>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Read-only variant — used when the user opens one of their OWN sent
+// planes from the outbox. No accept/reject; just the message + status.
+// ---------------------------------------------------------------------------
+
+function SentPlaneDetail({ plane }: { plane: SentPlane }) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+  const router = useRouter();
+  const meta = STATUS_META[plane.status];
+  const tint = meta.tint(c);
+
+  // Resolve a name + avatar fallback. Every sent plane has a recipient
+  // since the system pairs each launch with a real user — but for older
+  // mock entries we may only have `recipientName`.
+  const recipientName =
+    plane.recipient?.name ?? plane.recipientName ?? 'Anonymous';
+  const recipientLocation = plane.recipient?.location;
+  const recipientId = plane.recipient?.id;
+
+  return (
+    <SafeAreaView
+      edges={['top', 'bottom']}
+      style={[styles.root, { backgroundColor: c.background }]}
+    >
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={26} color={c.text} />
+        </Pressable>
+        <ThemedText style={styles.headerTitle}>Your plane</ThemedText>
+        <View style={styles.headerRight} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Recipient card (same shape as the inbound sender card) —
+            tap → profile when we have a real id. */}
+        <Pressable
+          onPress={
+            recipientId ? () => router.push(`/profile/${recipientId}`) : undefined
+          }
+          disabled={!recipientId}
+          style={({ pressed }) => [
+            styles.senderCard,
+            {
+              backgroundColor: c.surface,
+              borderColor: c.border,
+              opacity: pressed && recipientId ? 0.85 : 1,
+            },
+          ]}
+        >
+          <View style={[styles.avatar, { backgroundColor: c.tintMuted }]}>
+            <ThemedText
+              style={[styles.avatarInitial, { color: c.tintPressed }]}
+            >
+              {recipientName.charAt(0).toUpperCase()}
+            </ThemedText>
+          </View>
+          <View style={styles.senderText}>
+            <ThemedText style={styles.senderName}>
+              To {recipientName}
+            </ThemedText>
+            <ThemedText style={[styles.senderMeta, { color: c.textMuted }]}>
+              {recipientLocation ? `${recipientLocation} · ` : ''}
+              <ThemedText
+                style={[styles.senderMeta, { color: tint, fontWeight: '600' }]}
+              >
+                {meta.label}
+              </ThemedText>
+            </ThemedText>
+          </View>
+          {recipientId ? (
+            <Ionicons name="chevron-forward" size={20} color={c.textSubtle} />
+          ) : null}
+        </Pressable>
+
+        {/* The paper itself — visually identical to the inbound detail */}
+        <View
+          style={[
+            styles.paper,
+            { backgroundColor: c.surface, borderColor: c.border },
+          ]}
+        >
+          <View style={styles.paperIconWrap}>
+            <Ionicons name="paper-plane" size={28} color={c.tint} />
+          </View>
+          <ThemedText style={styles.message}>{plane.message}</ThemedText>
+
+          <View style={styles.dotsRow}>
+            {Array.from({ length: 28 }).map((_, i) => (
+              <View
+                key={i}
+                style={[styles.dot, { backgroundColor: c.borderStrong }]}
+              />
+            ))}
+          </View>
+
+          <ThemedText style={[styles.timestamp, { color: c.textMuted }]}>
+            Sent {timeAgo(plane.sentAt)}
+            {plane.respondedAt && plane.status === 'accepted'
+              ? ` · accepted ${timeAgo(plane.respondedAt)}`
+              : ''}
+          </ThemedText>
+        </View>
+
+        {/* Filters used at send-time */}
+        {plane.filters ? (
+          <View
+            style={[
+              styles.filtersCard,
+              { backgroundColor: c.surface, borderColor: c.border },
+            ]}
+          >
+            <ThemedText style={[styles.filtersTitle, { color: c.textMuted }]}>
+              SEND FILTERS
+            </ThemedText>
+            <View style={styles.filtersChips}>
+              {plane.filters.country ? (
+                <FilterChip icon="globe-outline" label={plane.filters.country} />
+              ) : null}
+              {plane.filters.radiusKm ? (
+                <FilterChip
+                  icon="location-outline"
+                  label={`${plane.filters.radiusKm} km`}
+                />
+              ) : null}
+              {plane.filters.gender ? (
+                <FilterChip
+                  icon="person-outline"
+                  label={plane.filters.gender}
+                />
+              ) : null}
+              {plane.filters.ageRange ? (
+                <FilterChip
+                  icon="people-outline"
+                  label={`${plane.filters.ageRange[0]}–${plane.filters.ageRange[1]}`}
+                />
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function FilterChip({
+  icon,
+  label,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+}) {
+  const scheme = useColorScheme() ?? 'light';
+  const c = Colors[scheme];
+  return (
+    <View
+      style={[
+        styles.filterChip,
+        { backgroundColor: c.surfaceAlt, borderColor: c.border },
+      ]}
+    >
+      <Ionicons name={icon} size={13} color={c.textMuted} />
+      <ThemedText style={[styles.filterChipText, { color: c.text }]}>
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+// Recipient-visible label only ever surfaces two states — Accepted or
+// On air. Internally we still track flying / pending / rejected /
+// expired (for analytics, future expiry sweeps, etc.), but the user
+// sees a clean two-state label.
+const STATUS_META: Record<
+  SentPlaneStatus,
+  {
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    tint: (c: (typeof Colors)['light']) => string;
+  }
+> = {
+  flying: {
+    icon: 'paper-plane-outline',
+    label: 'On air',
+    tint: (c) => c.warning,
+  },
+  pending: {
+    icon: 'paper-plane-outline',
+    label: 'On air',
+    tint: (c) => c.warning,
+  },
+  accepted: {
+    icon: 'checkmark-circle',
+    label: 'Accepted',
+    tint: (c) => c.success,
+  },
+  rejected: {
+    icon: 'paper-plane-outline',
+    label: 'On air',
+    tint: (c) => c.warning,
+  },
+  expired: {
+    icon: 'paper-plane-outline',
+    label: 'On air',
+    tint: (c) => c.warning,
+  },
+};
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -307,4 +571,32 @@ const styles = StyleSheet.create({
   notFoundText: {
     fontSize: 16,
   },
+
+  // Read-only variant
+  filtersCard: {
+    padding: Spacing.md,
+    borderRadius: Radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: Spacing.sm,
+  },
+  filtersTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  filtersChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radii.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  filterChipText: { fontSize: 12, fontWeight: '500' },
 });
