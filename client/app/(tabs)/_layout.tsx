@@ -13,7 +13,9 @@
  *     tap (Reanimated `withTiming`).
  *   - Outline → filled icon cross-fade when a tab gains focus.
  *   - Subtle scale pop on the focused icon.
- *   - Elevated centre Send button (unchanged).
+ *   - Send tab renders as a plain icon (same affordance as the rest)
+ *     — no elevated coloured circle. Keeps the bar visually neutral
+ *     and avoids competing with the page's primary CTAs.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -29,7 +31,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { Colors, Radii } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -40,7 +42,7 @@ const TAB_CONFIG: Record<
 > = {
   index: { active: 'home', inactive: 'home-outline', label: 'Home' },
   chats: { active: 'chatbubble', inactive: 'chatbubble-outline', label: 'Chats' },
-  send: { active: 'paper-plane', inactive: 'paper-plane', label: 'Send' },
+  send: { active: 'paper-plane', inactive: 'paper-plane-outline', label: 'Send' },
   travel: { active: 'globe', inactive: 'globe-outline', label: 'Travel' },
   profile: { active: 'person', inactive: 'person-outline', label: 'Profile' },
 };
@@ -115,18 +117,9 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           if (!isFocused) navigation.navigate(route.name);
         };
 
-        if (route.name === 'send') {
-          return (
-            <SendTab
-              key={route.key}
-              focused={isFocused}
-              tintColor={c.tint}
-              labelColor={c.textMuted}
-              onPress={onPress}
-            />
-          );
-        }
-
+        // Every tab — including Send — uses the same TabItem now so
+        // the bar reads as a single neutral row of icons. Send no
+        // longer has a tinted circular FAB.
         return (
           <TabItem
             key={route.key}
@@ -210,46 +203,6 @@ function TabItem({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Send tab — elevated circular button. Slight scale pulse when focused.
-// ---------------------------------------------------------------------------
-
-type SendTabProps = {
-  focused: boolean;
-  tintColor: string;
-  labelColor: string;
-  onPress: () => void;
-};
-
-function SendTab({ focused, tintColor, labelColor, onPress }: SendTabProps) {
-  const focus = useSharedValue(focused ? 1 : 0);
-
-  useEffect(() => {
-    focus.value = withTiming(focused ? 1 : 0, { duration: 220 });
-  }, [focused, focus]);
-
-  const circleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 + focus.value * 0.1 }],
-  }));
-
-  return (
-    <Pressable onPress={onPress} style={styles.sendWrapper} android_ripple={null}>
-      <Animated.View
-        style={[
-          styles.sendCircle,
-          { backgroundColor: tintColor },
-          circleStyle,
-        ]}
-      >
-        <Ionicons name="paper-plane" size={22} color="#fff" />
-      </Animated.View>
-      <ThemedText style={[styles.sendLabel, { color: labelColor }]}>
-        Send
-      </ThemedText>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
@@ -283,29 +236,5 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '500',
-  },
-  sendWrapper: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 0,
-  },
-  sendCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: Radii.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -18,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  sendLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 4,
   },
 });

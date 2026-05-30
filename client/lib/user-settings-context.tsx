@@ -95,19 +95,17 @@ type UserSettingsContextValue = {
   deleteAccount: () => void;
 };
 
+/** Fresh-install profile — almost everything is empty so the
+ *  onboarding screens fill it in. We keep stable identity fields (id,
+ *  joinedAt) populated so the rest of the app has something to render
+ *  even before /profile-setup completes. */
 const DEFAULT_USER: LocalUser = {
   id: 'me',
-  name: 'Rahul',
-  username: 'rahul',
-  bio: 'Sending paper planes into the wind ✈️',
-  city: 'Bengaluru',
-  country: 'India',
-  dob: '2001-08-15',
-  age: 24,
-  interests: ['music', 'late-night walks', 'photography', 'philosophy'],
-  joinedAt: '2026-04-01T00:00:00Z',
-  phone: '+91 99999 88888',
-  email: 'rahul@swing.app',
+  name: '',
+  username: '',
+  bio: '',
+  interests: [],
+  joinedAt: new Date().toISOString(),
 };
 
 const UserSettingsContext = createContext<UserSettingsContextValue | null>(null);

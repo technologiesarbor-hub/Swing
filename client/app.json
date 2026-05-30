@@ -55,7 +55,23 @@
         }
       ],
       "expo-video",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Swing uses your location to match you with paper planes nearby and to power the radius filter when you send one.",
+          "locationWhenInUsePermission": "Swing uses your location to match you with paper planes nearby and to power the radius filter when you send one.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#FD425E"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

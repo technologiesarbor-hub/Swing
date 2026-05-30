@@ -213,6 +213,23 @@ export default function ChatsScreen() {
                     }
                     router.push(`/chat/${item.id}`);
                   }}
+                  onAvatarPress={() => {
+                    if (item.isBlocked) {
+                      Haptics.notificationAsync(
+                        Haptics.NotificationFeedbackType.Warning,
+                      );
+                      return;
+                    }
+                    Haptics.selectionAsync();
+                    // Status ring tap → story viewer. Plain avatar tap
+                    // → partner's profile. Falls through to profile if
+                    // somehow the ring is shown without status data.
+                    if (item.partner.hasStatus) {
+                      router.push(`/story/${item.partner.id}`);
+                    } else {
+                      router.push(`/profile/${item.partner.id}`);
+                    }
+                  }}
                   onLongPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     setActionChatId(item.id);
@@ -259,10 +276,12 @@ export default function ChatsScreen() {
 function ChatRow({
   chat,
   onPress,
+  onAvatarPress,
   onLongPress,
 }: {
   chat: Chat;
   onPress: () => void;
+  onAvatarPress: () => void;
   onLongPress: () => void;
 }) {
   const scheme = useColorScheme() ?? 'light';
@@ -301,70 +320,89 @@ function ChatRow({
     : previewBody;
   const ts = lastMessage ? timeAgo(lastMessage.createdAt) : '';
 
+  // Why two sibling Pressables instead of one wrapper?
+  // The user wants the avatar circle to be a separate hit target so
+  // tapping the status ring opens the story viewer (and a plain
+  // avatar tap opens the partner's profile) without also opening the
+  // chat. Two siblings = each touch target is unambiguous; long-press
+  // is duplicated on both so the action menu still opens from
+  // anywhere on the row.
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={320}
-      style={({ pressed }) => [
-        styles.row,
-        { backgroundColor: pressed ? c.surfaceAlt : 'transparent' },
-        isBlocked && { opacity: 0.55 },
-      ]}
-    >
-      <Avatar
-        uri={chat.partner.avatarUrl}
-        name={chat.partner.name}
-        size={56}
-        hasStatus={!isBlocked && chat.partner.hasStatus}
-        online={!isBlocked && chat.partner.onlineNow}
-      />
+    <View style={[styles.row, isBlocked && { opacity: 0.55 }]}>
+      <Pressable
+        onPress={onAvatarPress}
+        onLongPress={onLongPress}
+        delayLongPress={320}
+        hitSlop={6}
+        style={({ pressed }) => [
+          styles.avatarHit,
+          pressed && { opacity: 0.75 },
+        ]}
+      >
+        <Avatar
+          uri={chat.partner.avatarUrl}
+          name={chat.partner.name}
+          size={56}
+          hasStatus={!isBlocked && chat.partner.hasStatus}
+          online={!isBlocked && chat.partner.onlineNow}
+        />
+      </Pressable>
 
-      <View style={styles.rowText}>
-        <View style={styles.rowTop}>
-          <ThemedText style={styles.rowName} numberOfLines={1}>
-            {chat.partner.name}
-          </ThemedText>
-          {isPinned ? (
-            <Ionicons name="pin" size={14} color={c.textMuted} />
-          ) : null}
-          {isBlocked ? (
-            <Ionicons name="ban-outline" size={14} color={c.danger} />
-          ) : null}
-          <ThemedText style={[styles.rowTime, { color: c.textMuted }]}>
-            {ts}
-          </ThemedText>
+      <Pressable
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={320}
+        style={({ pressed }) => [
+          styles.rowContent,
+          { backgroundColor: pressed ? c.surfaceAlt : 'transparent' },
+        ]}
+      >
+        <View style={styles.rowText}>
+          <View style={styles.rowTop}>
+            <ThemedText style={styles.rowName} numberOfLines={1}>
+              {chat.partner.name}
+            </ThemedText>
+            {isPinned ? (
+              <Ionicons name="pin" size={14} color={c.textMuted} />
+            ) : null}
+            {isBlocked ? (
+              <Ionicons name="ban-outline" size={14} color={c.danger} />
+            ) : null}
+            <ThemedText style={[styles.rowTime, { color: c.textMuted }]}>
+              {ts}
+            </ThemedText>
+          </View>
+
+          <View style={styles.rowBottom}>
+            <ThemedText
+              numberOfLines={1}
+              style={[
+                styles.rowPreview,
+                {
+                  color: chat.unreadCount > 0 && !isBlocked ? c.text : c.textMuted,
+                  fontWeight: chat.unreadCount > 0 && !isBlocked ? '600' : '400',
+                },
+              ]}
+            >
+              {isBlocked
+                ? 'Blocked'
+                : chat.partnerTyping
+                  ? 'typing…'
+                  : preview}
+            </ThemedText>
+            {chat.unreadCount > 0 && !isBlocked ? (
+              <View style={[styles.unreadBadge, { backgroundColor: c.tint }]}>
+                <ThemedText style={styles.unreadBadgeText}>
+                  {chat.unreadCount}
+                </ThemedText>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        <View style={styles.rowBottom}>
-          <ThemedText
-            numberOfLines={1}
-            style={[
-              styles.rowPreview,
-              {
-                color: chat.unreadCount > 0 && !isBlocked ? c.text : c.textMuted,
-                fontWeight: chat.unreadCount > 0 && !isBlocked ? '600' : '400',
-              },
-            ]}
-          >
-            {isBlocked
-              ? 'Blocked'
-              : chat.partnerTyping
-                ? 'typing…'
-                : preview}
-          </ThemedText>
-          {chat.unreadCount > 0 && !isBlocked ? (
-            <View style={[styles.unreadBadge, { backgroundColor: c.tint }]}>
-              <ThemedText style={styles.unreadBadgeText}>
-                {chat.unreadCount}
-              </ThemedText>
-            </View>
-          ) : null}
-        </View>
-      </View>
-
-      <Ionicons name="chevron-forward" size={18} color={c.textSubtle} />
-    </Pressable>
+        <Ionicons name="chevron-forward" size={18} color={c.textSubtle} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -476,10 +514,27 @@ const styles = StyleSheet.create({
     // Full-width — extends across the avatar column too, so the divider
     // visually "covers till" the avatar circle (per user request).
   },
+  // Outer wrapper — only handles layout & blocked-opacity. Press
+  // feedback lives on the two inner Pressables.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+  },
+  // Dedicated tap target around the avatar. We use vertical padding
+  // (no horizontal) so the avatar still aligns with the content
+  // column to its right.
+  avatarHit: {
+    paddingVertical: Spacing.md,
+    paddingRight: Spacing.md,
+  },
+  // Everything to the right of the avatar — name, preview, chevron.
+  // This is the "open chat" tap target.
+  rowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.sm,
     borderRadius: Radii.lg,

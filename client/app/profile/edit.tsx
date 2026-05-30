@@ -53,6 +53,10 @@ export default function EditProfileScreen() {
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [showHashtagEditor, setShowHashtagEditor] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
+  // Spinner-only transient. See profile-setup screen for the rationale
+  // — iOS won't fire onChange unless the wheel actually moves, so the
+  // displayed default would be lost if the user just taps Done.
+  const [tempDob, setTempDob] = useState<Date>(() => defaultDob());
 
   const set = <K extends keyof LocalUser>(key: K, value: LocalUser[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -65,16 +69,30 @@ export default function EditProfileScreen() {
     setDraft((d) => ({ ...d, dob: iso, age }));
   };
 
+  const openDobPicker = () => {
+    setTempDob(draft.dob ? new Date(draft.dob) : defaultDob());
+    setShowDobPicker(true);
+  };
+
+  const confirmDob = () => {
+    setDob(tempDob);
+    setShowDobPicker(false);
+  };
+
+  const cancelDob = () => {
+    setShowDobPicker(false);
+  };
+
   const handleDobChange = (event: DateTimePickerEvent, date?: Date) => {
-    // Android fires `set` (user tapped OK) or `dismissed` (cancelled).
-    // iOS fires every spin of the wheel — only commit + close on
-    // the user's explicit Done press.
+    // Android fires `set` (user tapped OK) or `dismissed` (cancelled);
+    // it auto-commits, so we don't need temp state there.
     if (Platform.OS === 'android') {
       setShowDobPicker(false);
       if (event.type === 'set' && date) setDob(date);
       return;
     }
-    if (date) setDob(date);
+    // iOS spinner — accumulate in `tempDob`; commit happens on Done.
+    if (date) setTempDob(date);
   };
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(user);
@@ -237,7 +255,7 @@ export default function EditProfileScreen() {
                   ? `${formatDob(draft.dob)} · ${ageFromDob(draft.dob)} yrs`
                   : 'Tap to set'
               }
-              onPress={() => setShowDobPicker(true)}
+              onPress={openDobPicker}
             />
 
             <RowAction
@@ -327,11 +345,8 @@ export default function EditProfileScreen() {
           - Android: native dialog (the picker shows itself when mounted). */}
       {showDobPicker ? (
         Platform.OS === 'ios' ? (
-          <Modal transparent animationType="slide" onRequestClose={() => setShowDobPicker(false)}>
-            <Pressable
-              style={styles.backdrop}
-              onPress={() => setShowDobPicker(false)}
-            >
+          <Modal transparent animationType="slide" onRequestClose={cancelDob}>
+            <Pressable style={styles.backdrop} onPress={cancelDob}>
               <Pressable onPress={(e) => e.stopPropagation()}>
                 <SafeAreaView edges={['bottom']}>
                   <View
@@ -341,18 +356,18 @@ export default function EditProfileScreen() {
                     ]}
                   >
                     <View style={styles.dobHeader}>
-                      <Pressable onPress={() => setShowDobPicker(false)} hitSlop={8}>
+                      <Pressable onPress={cancelDob} hitSlop={8}>
                         <ThemedText style={{ color: c.textMuted }}>Cancel</ThemedText>
                       </Pressable>
                       <ThemedText style={styles.dobTitle}>Date of birth</ThemedText>
-                      <Pressable onPress={() => setShowDobPicker(false)} hitSlop={8}>
+                      <Pressable onPress={confirmDob} hitSlop={8}>
                         <ThemedText style={{ color: c.tint, fontWeight: '700' }}>
                           Done
                         </ThemedText>
                       </Pressable>
                     </View>
                     <DateTimePicker
-                      value={draft.dob ? new Date(draft.dob) : defaultDob()}
+                      value={tempDob}
                       mode="date"
                       display="spinner"
                       maximumDate={minDob()}

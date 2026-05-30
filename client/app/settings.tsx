@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useAuth } from '@/lib/auth-context';
 import { useUserSettings } from '@/lib/user-settings-context';
 
 export default function SettingsScreen() {
@@ -42,6 +43,7 @@ export default function SettingsScreen() {
     user,
     deleteAccount,
   } = useUserSettings();
+  const { signOut } = useAuth();
 
   const isDarkMode = themePref === 'dark';
 
@@ -62,13 +64,13 @@ export default function SettingsScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             deleteAccount();
+            await signOut(); // bounces user out to /(auth)/splash via AuthGuard
             Alert.alert(
               'Account deleted',
               'Your data has been wiped from this device.',
             );
-            router.back();
           },
         },
       ],
@@ -193,10 +195,18 @@ export default function SettingsScreen() {
             onPress={() =>
               Alert.alert(
                 'Log out?',
-                "You'll need to sign in again with your number.",
+                "You'll need to sign in again with your email.",
                 [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: 'Log out', style: 'destructive' },
+                  {
+                    text: 'Log out',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await signOut();
+                      // AuthGuard in root layout will redirect to
+                      // /(auth)/splash automatically.
+                    },
+                  },
                 ],
               )
             }

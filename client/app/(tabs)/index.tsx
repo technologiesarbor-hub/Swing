@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   type NativeScrollEvent,
@@ -46,14 +46,49 @@ import { FriendsCelebration } from '@/components/friends-celebration';
 import { PlaneCard } from '@/components/plane-card';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
+import { WelcomeDialog } from '@/components/welcome-dialog';
 import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { useAuth } from '@/lib/auth-context';
 import { useChats } from '@/lib/chats-context';
 import { MOCK_PLANES } from '@/lib/mock-planes';
 import { useNotifications } from '@/lib/notifications-context';
+import { runFirstTimePermissionFlow } from '@/lib/permissions';
 import { useSentPlanes } from '@/lib/sent-planes-context';
+import { useUserSettings } from '@/lib/user-settings-context';
 import type { Plane } from '@/types/plane';
+
+/**
+ * Per-user "we've already shown the welcome dialog" set. Persisted in
+ * AsyncStorage so the dialog appears exactly once for a given account,
+ * surviving app relaunches and hot reloads. Stored as an array of
+ * user ids; we keep it tiny by design.
+ */
+const WELCOME_SEEN_KEY = 'swing/v1/home/welcome-seen';
+
+async function readWelcomeSeen(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(WELCOME_SEEN_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function markWelcomeSeen(userId: string): Promise<void> {
+  try {
+    const list = await readWelcomeSeen();
+    if (!list.includes(userId)) {
+      list.push(userId);
+      await AsyncStorage.setItem(WELCOME_SEEN_KEY, JSON.stringify(list));
+    }
+  } catch {
+    /* best-effort */
+  }
+}
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Plane>);
 
@@ -71,6 +106,49 @@ export default function HomeScreen() {
   const { acceptPlane, chats } = useChats();
   const { unreadCount } = useNotifications();
   const { total: sentTotal } = useSentPlanes();
+  const { user } = useUserSettings();
+  // The seen-set is keyed by the *auth* account id (e.g. "u_17xxxxxx")
+  // and NOT by the local user-settings id (which is always 'me' until
+  // user-settings gets persisted per-account). Keying by auth id is
+  // what makes the dialog show once per real account rather than once
+  // ever across all signups on this device.
+  const auth = useAuth();
+  const authUserId = auth.status === 'signed-in' ? auth.user.id : null;
+
+  // Welcome dialog — shown exactly once per auth account (persisted in
+  // AsyncStorage). We delay the open slightly so it doesn't fight
+  // the home tab's mount animations, and we *don't* set
+  // `showWelcome=true` synchronously; instead we wait for the
+  // AsyncStorage read so we never flash the dialog and then hide it.
+  const [showWelcome, setShowWelcome] = useState(false);
+  useEffect(() => {
+    if (!authUserId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    (async () => {
+      const seen = await readWelcomeSeen();
+      if (cancelled) return;
+      if (!seen.includes(authUserId)) {
+        timer = setTimeout(() => {
+          if (!cancelled) setShowWelcome(true);
+        }, 500);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [authUserId]);
+
+  const closeWelcome = () => {
+    setShowWelcome(false);
+    if (authUserId) void markWelcomeSeen(authUserId);
+    // Kick off the (sequenced, idempotent) notifications + location
+    // permission flow. It's fire-and-forget — the UI doesn't block on
+    // the prompt outcomes; we'll re-check granted state lazily when
+    // the features that need them are actually used.
+    void runFirstTimePermissionFlow();
+  };
   // Locally rejected ids; combined with accepted-sender ids (derived from
   // `chats`) to filter the inbox. Using `chats` as part of the source of
   // truth means accepts done from the plane-detail screen also propagate
@@ -332,6 +410,16 @@ export default function HomeScreen() {
         sender={celebrationFor?.plane.sender ?? null}
         onDismiss={dismissCelebration}
         onStartChat={startCelebrationChat}
+      />
+
+      {/* First-visit welcome — invites the user to round out their
+          profile (interests / status / bio) and warms up the native
+          permission prompts. Only shows once per user per session. */}
+      <WelcomeDialog
+        visible={showWelcome}
+        userName={user.name}
+        onComplete={closeWelcome}
+        onLater={closeWelcome}
       />
     </SafeAreaView>
   );
