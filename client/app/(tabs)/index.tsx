@@ -19,6 +19,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
@@ -58,15 +59,6 @@ const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<Plane>);
 
 const CARD_HORIZONTAL_PADDING = Spacing.xl;
 const CARD_AREA_HEIGHT = 480;
-
-// Static positions for the 5 dots in the logo's curvy trail.
-const LOGO_TRAIL_DOTS = [
-  { x: 0, y: 7 },
-  { x: 5, y: 3 },
-  { x: 11, y: 1 },
-  { x: 17, y: 3 },
-  { x: 22, y: 7 },
-] as const;
 
 export default function HomeScreen() {
   const scheme = useColorScheme() ?? 'light';
@@ -183,25 +175,14 @@ export default function HomeScreen() {
           anywhere except on a card to change tab" — Instagram-style. */}
       <TabSwipeRegion currentRoute="/">
         <Animated.View style={[styles.header, fadeStyle]}>
-          <View style={styles.brand}>
-            <ThemedText style={styles.brandText}>Swing</ThemedText>
-            <View style={styles.brandTrail}>
-              {LOGO_TRAIL_DOTS.map((dot, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.brandTrailDot,
-                    {
-                      backgroundColor: c.tint,
-                      left: dot.x,
-                      top: dot.y,
-                    },
-                  ]}
-                />
-              ))}
-            </View>
-            <Ionicons name="paper-plane" size={18} color={c.tint} />
-          </View>
+          {/* Cursive wordmark — replaces the old text + dotted trail.
+              The PNG already contains a tiny paper-plane swooping off
+              the 'g', so we don't need an Ionicon next to it. */}
+          <Image
+            source={require('@/assets/images/swing-logo.png')}
+            style={styles.brandLogo}
+            contentFit="contain"
+          />
 
           <View style={styles.headerActions}>
             <Pressable
@@ -406,28 +387,13 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
   },
-  brand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  brandText: {
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: -0.5,
-  },
-  brandTrail: {
-    width: 24,
-    height: 10,
-    marginLeft: 1,
-    marginRight: 2,
-    position: 'relative',
-  },
-  brandTrailDot: {
-    position: 'absolute',
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    opacity: 0.55,
+  // Cursive wordmark — Instagram-style. Sized noticeably bigger than
+  // the 22px Ionicons on the right so the brand reads as the visual
+  // anchor of the header. Transparent RGBA PNG, contentFit="contain"
+  // preserves the 1.5:1 aspect of the source PNG.
+  brandLogo: {
+    height: 40,
+    width: 120,
   },
   headerActions: {
     flexDirection: 'row',
