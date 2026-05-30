@@ -9,9 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rahulsaw.swing"
     },
     "android": {
+      "package": "com.rahulsaw.swing",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -27,6 +29,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
@@ -38,11 +41,30 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Swing uses the microphone to record voice messages you send in chats."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Swing accesses your photos so you can send them in chats."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3ecb2f62-0693-4c42-bbe2-c9c7848af4e7"
+      }
+    },
+    "owner": "arbortechnologies"
   }
 }

@@ -1,9 +1,16 @@
 /**
  * Visual card for a single received paper plane.
  *
- * Pure presentational — receives a `Plane` and renders it. Accept / reject
- * actions are passed in via callbacks so the screen owning the carousel can
- * decide what to do (advance to next, mark as accepted, etc.).
+ * Pure presentational — receives a `Plane` and renders it. Three independent
+ * tap targets, in order of "specificity wins" (RN press hits the innermost
+ * pressable):
+ *   1. Accept / Reject action buttons
+ *   2. Avatar circle → opens the sender's profile screen
+ *   3. The rest of the card body → opens the full plane-detail screen
+ *
+ * The message text on the card is intentionally TRIMMED with
+ * `numberOfLines={3}` so the card stays consistent height; the full text
+ * is visible on the detail screen.
  */
 
 import { Ionicons } from '@expo/vector-icons';
@@ -16,32 +23,56 @@ import type { Plane } from '@/types/plane';
 
 type Props = {
   plane: Plane;
+  onOpen?: (plane: Plane) => void;
+  onOpenProfile?: (plane: Plane) => void;
   onAccept?: (plane: Plane) => void;
   onReject?: (plane: Plane) => void;
 };
 
-export function PlaneCard({ plane, onAccept, onReject }: Props) {
+export function PlaneCard({
+  plane,
+  onOpen,
+  onOpenProfile,
+  onAccept,
+  onReject,
+}: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
   const avatarInitial = plane.sender.name.charAt(0).toUpperCase();
 
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={() => onOpen?.(plane)}
+      style={({ pressed }) => [
         styles.card,
-        { backgroundColor: c.surface, borderColor: c.border },
+        {
+          backgroundColor: c.surface,
+          borderColor: c.border,
+          opacity: pressed ? 0.96 : 1,
+          transform: [{ scale: pressed ? 0.995 : 1 }],
+        },
       ]}
     >
       {/* Top: sender info + age pill */}
       <View style={styles.topRow}>
         <View style={styles.senderRow}>
-          <View style={[styles.avatar, { backgroundColor: c.tintMuted }]}>
+          <Pressable
+            onPress={() => onOpenProfile?.(plane)}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.avatar,
+              {
+                backgroundColor: c.tintMuted,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
             <ThemedText style={[styles.avatarInitial, { color: c.tintPressed }]}>
               {avatarInitial}
             </ThemedText>
-          </View>
-          <View>
+          </Pressable>
+          <View style={styles.senderText}>
             <ThemedText style={styles.senderName} numberOfLines={1}>
               {plane.sender.name}
             </ThemedText>
@@ -60,11 +91,16 @@ export function PlaneCard({ plane, onAccept, onReject }: Props) {
 
       {/* Plane illustration (placeholder icon — swap with custom artwork later) */}
       <View style={styles.illustration}>
-        <Ionicons name="paper-plane-outline" size={96} color={c.tint} />
+        <Ionicons name="paper-plane-outline" size={88} color={c.tint} />
       </View>
 
-      {/* Message */}
-      <ThemedText style={styles.message}>{plane.message}</ThemedText>
+      {/* Message — trimmed; tap card to read full. */}
+      <ThemedText style={styles.message} numberOfLines={3}>
+        {plane.message}
+      </ThemedText>
+      <ThemedText style={[styles.tapHint, { color: c.textSubtle }]}>
+        Tap to read full
+      </ThemedText>
 
       {/* Decorative dotted divider */}
       <View style={styles.dotsRow}>
@@ -116,7 +152,7 @@ export function PlaneCard({ plane, onAccept, onReject }: Props) {
           { borderColor: c.border, backgroundColor: c.surfaceAlt },
         ]}
       />
-    </View>
+    </Pressable>
   );
 }
 
@@ -144,6 +180,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.md,
     flex: 1,
+  },
+  senderText: {
+    flexShrink: 1,
   },
   avatar: {
     width: 44,
@@ -178,21 +217,29 @@ const styles = StyleSheet.create({
   illustration: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.lg,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   message: {
-    fontSize: 18,
-    lineHeight: 26,
+    fontSize: 17,
+    lineHeight: 24,
     textAlign: 'center',
     fontStyle: 'italic',
     paddingHorizontal: Spacing.md,
+  },
+  tapHint: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    fontWeight: '600',
   },
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
-    marginTop: Spacing.xl,
+    marginTop: Spacing.lg,
   },
   dot: {
     width: 3,
@@ -203,7 +250,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: Spacing.xl,
-    marginTop: Spacing.xl,
+    marginTop: Spacing.lg,
   },
   actionButton: {
     width: 56,

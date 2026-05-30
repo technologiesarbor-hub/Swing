@@ -42,9 +42,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PlaneBalance } from '@/components/plane-balance';
 import { PlaneTrail } from '@/components/plane-trail';
+import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
 import { usePlaneBalance } from '@/lib/plane-balance-context';
 import { PLANE_ICON_ROTATION_OFFSET, planePath } from '@/lib/plane-path';
 
@@ -54,6 +56,7 @@ export default function SendScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const { count, spendOne, add } = usePlaneBalance();
+  const fadeStyle = useTabFocusFade();
 
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -182,10 +185,16 @@ export default function SendScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <ThemedText style={styles.title}>Send a plane</ThemedText>
-        <PlaneBalance />
-      </View>
+      {/* Header is its own swipe surface — swiping over the title / balance
+          pill switches tabs; swipe over the paper card / input is ignored
+          (only horizontal pans >20px past 15px-of-vertical-tolerance fire
+          a tab change, so taps and typing on the input still work fine). */}
+      <TabSwipeRegion currentRoute="/send" style={styles.headerSwipe}>
+        <Animated.View style={[styles.header, fadeStyle]}>
+          <ThemedText style={styles.title}>Send a plane</ThemedText>
+          <PlaneBalance />
+        </Animated.View>
+      </TabSwipeRegion>
 
       {count <= 0 ? (
         <OutOfPlanes onWatchAd={handleWatchAd} />
@@ -196,7 +205,13 @@ export default function SendScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={styles.body}>
+            {/* Wrap body in a TabSwipeRegion so any horizontal pan over the
+                card / button area switches tabs. Vertical drags and taps
+                still propagate to the TextInput / Send button — Pan only
+                activates after 20px horizontal travel with <15px vertical
+                drift. */}
+            <TabSwipeRegion currentRoute="/send" style={styles.flex}>
+              <Animated.View style={[styles.body, fadeStyle]}>
               {/* Paper card + plane overlay share the same area so the
                   fold-then-fly animation reads as a single transformation. */}
               <View style={styles.cardArea}>
@@ -265,7 +280,8 @@ export default function SendScreen() {
                   Send
                 </ThemedText>
               </Pressable>
-            </View>
+              </Animated.View>
+            </TabSwipeRegion>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       )}
@@ -278,31 +294,36 @@ function OutOfPlanes({ onWatchAd }: { onWatchAd: () => void }) {
   const c = Colors[scheme];
 
   return (
-    <View style={styles.emptyBody}>
-      <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
-        <Ionicons name="paper-plane-outline" size={48} color={c.textSubtle} />
+    <TabSwipeRegion currentRoute="/send" style={styles.flex}>
+      <View style={styles.emptyBody}>
+        <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
+          <Ionicons name="paper-plane-outline" size={48} color={c.textSubtle} />
+        </View>
+        <ThemedText style={styles.emptyTitle}>You&apos;re out of planes</ThemedText>
+        <ThemedText style={[styles.emptySubtitle, { color: c.textMuted }]}>
+          Watch a short ad and we&apos;ll give you 5 fresh planes to launch.
+        </ThemedText>
+        <Pressable
+          onPress={onWatchAd}
+          style={({ pressed }) => [
+            styles.watchAdButton,
+            { backgroundColor: c.tint, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Ionicons name="play" size={16} color="#fff" />
+          <ThemedText style={styles.watchAdLabel}>Watch ad — get 5 planes</ThemedText>
+        </Pressable>
       </View>
-      <ThemedText style={styles.emptyTitle}>You&apos;re out of planes</ThemedText>
-      <ThemedText style={[styles.emptySubtitle, { color: c.textMuted }]}>
-        Watch a short ad and we&apos;ll give you 5 fresh planes to launch.
-      </ThemedText>
-      <Pressable
-        onPress={onWatchAd}
-        style={({ pressed }) => [
-          styles.watchAdButton,
-          { backgroundColor: c.tint, opacity: pressed ? 0.85 : 1 },
-        ]}
-      >
-        <Ionicons name="play" size={16} color="#fff" />
-        <ThemedText style={styles.watchAdLabel}>Watch ad — get 5 planes</ThemedText>
-      </Pressable>
-    </View>
+    </TabSwipeRegion>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
+  headerSwipe: {
+    // Header is fixed height; no `flex: 1` here.
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

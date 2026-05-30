@@ -6,6 +6,7 @@ export default function TravelScreen() {
       icon="globe-outline"
       title="Travel mode"
       subtitle="Set a different city and send planes from anywhere in the world."
+      currentRoute="/travel"
     />
   );
 }

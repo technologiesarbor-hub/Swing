@@ -13,6 +13,18 @@ export type Sender = {
   distanceKm: number;
   /** Short age/identity tag shown in the corner pill, e.g. "21". */
   ageBadge: string;
+  /** Long-form bio shown on the profile screen. */
+  bio?: string;
+  city?: string;
+  country?: string;
+  /** A few interest tags shown on the profile screen. */
+  interests?: string[];
+  /** When this user joined Swing. */
+  joinedAt?: string;
+  /** Was the user online recently? Drives the green dot in chats list. */
+  onlineNow?: boolean;
+  /** Last seen timestamp (ISO) when not online. */
+  lastSeenAt?: string;
 };
 
 export type Plane = {
