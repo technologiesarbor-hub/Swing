@@ -1,0 +1,67 @@
+# Dependencies
+**/node_modules/
+**/.pnpm-store/
+
+# Expo
+**/.expo/
+**/dist/
+**/web-build/
+**/expo-env.d.ts
+**/.metro-health-check*
+
+# Native build artifacts
+**/ios/Pods/
+**/ios/build/
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/.kotlin/
+**/*.orig.*
+**/*.jks
+**/*.p8
+**/*.p12
+**/*.key
+**/*.mobileprovision
+**/*.pem
+
+# TypeScript
+**/*.tsbuildinfo
+
+# Expo template scratch
+**/app-example/
+
+# Env files (NEVER commit secrets)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Firebase
+**/firebase-debug.log
+**/firebase-debug.*.log
+**/firestore-debug.log
+**/.firebaserc
+**/firebase-service-account*.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Logs
+*.log
+**/npm-debug.*
+**/yarn-debug.*
+**/yarn-error.*
+
+# OS
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# AI assistants — per-user config & local sessions (NOT shared with team)
+**/.claude/
+**/.cursor/
+**/.aider*
+**/.codex/
