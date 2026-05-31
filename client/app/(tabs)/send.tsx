@@ -41,6 +41,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PlaneBalance } from '@/components/plane-balance';
 import { PlaneTrail } from '@/components/plane-trail';
+import { TabNavHeader } from '@/components/tab-nav-header';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
@@ -222,9 +223,11 @@ export default function SendScreen() {
           (only horizontal pans >20px past 15px-of-vertical-tolerance fire
           a tab change, so taps and typing on the input still work fine). */}
       <TabSwipeRegion currentRoute="/send" style={styles.headerSwipe}>
-        <Animated.View style={[styles.header, fadeStyle]}>
-          <ThemedText style={styles.title}>Send a plane</ThemedText>
-          <PlaneBalance />
+        <Animated.View style={fadeStyle}>
+          <TabNavHeader route="/send">
+            <ThemedText style={styles.title}>Send a plane</ThemedText>
+            <PlaneBalance />
+          </TabNavHeader>
         </Animated.View>
       </TabSwipeRegion>
 

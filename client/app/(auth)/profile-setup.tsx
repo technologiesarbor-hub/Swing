@@ -32,6 +32,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -83,7 +84,8 @@ export default function ProfileSetupScreen() {
   const c = Colors[scheme];
   const router = useRouter();
   const { user, updateUser } = useUserSettings();
-  const { markProfileComplete } = useAuth();
+  const auth = useAuth();
+  const { markProfileComplete } = auth;
 
   const [avatarUri, setAvatarUri] = useState<string | undefined>(user.avatarUri);
   const [name, setName] = useState('');
@@ -178,8 +180,7 @@ export default function ProfileSetupScreen() {
     !!gender &&
     !submitting;
 
-  const pickAvatar = async () => {
-    Haptics.selectionAsync();
+  const pickAvatarFromGallery = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -191,6 +192,26 @@ export default function ProfileSetupScreen() {
     if (!result.canceled && result.assets[0]) {
       setAvatarUri(result.assets[0].uri);
     }
+  };
+
+  const pickAvatar = () => {
+    Haptics.selectionAsync();
+    if (avatarUri) {
+      Alert.alert('Profile photo', undefined, [
+        { text: 'Update photo', onPress: () => void pickAvatarFromGallery() },
+        {
+          text: 'Remove photo',
+          style: 'destructive',
+          onPress: () => setAvatarUri(undefined),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+      return;
+    }
+    Alert.alert('Profile photo', undefined, [
+      { text: 'Add photo', onPress: () => void pickAvatarFromGallery() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const onDobChange = (e: DateTimePickerEvent, date?: Date) => {
@@ -221,14 +242,17 @@ export default function ProfileSetupScreen() {
       }
       await markUsernameTaken(claimedUsername);
 
+      const email =
+        auth.status === 'signed-in' ? auth.user.email : user.email;
+
       updateUser({
         name: name.trim(),
         username: claimedUsername,
         avatarUri,
         dob: dob!.toISOString().slice(0, 10),
         age: ageFromDob(dob!),
-        // Gender is stored on UserSettings for now (we'll move it to
-        // the AuthUser when the backend lands).
+        gender: gender ?? undefined,
+        email,
       });
       await markProfileComplete();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -335,7 +359,7 @@ export default function ProfileSetupScreen() {
                   // looks at the text indicator below.
                   borderColor:
                     usernameStatus.kind === 'available'
-                      ? c.tint + '88'
+                      ? c.success + '99'
                       : usernameStatus.kind === 'taken' ||
                           usernameStatus.kind === 'invalid'
                         ? c.danger + '88'
@@ -525,7 +549,7 @@ function UsernameStatusIcon({ status }: { status: UsernameStatus }) {
     case 'checking':
       return <ActivityIndicator size="small" color={c.textMuted} />;
     case 'available':
-      return <Ionicons name="checkmark-circle" size={18} color={c.tint} />;
+      return <Ionicons name="checkmark-circle" size={18} color={c.success} />;
     case 'taken':
     case 'invalid':
       return <Ionicons name="close-circle" size={18} color={c.danger} />;
@@ -545,7 +569,7 @@ function UsernameStatusText({ status }: { status: UsernameStatus }) {
       break;
     case 'available':
       text = 'Available — looks great';
-      color = c.tint;
+      color = c.success;
       break;
     case 'taken':
       text = 'That username is already taken';

@@ -208,7 +208,7 @@ export default function PlaneDetailScreen() {
         >
           <Ionicons name="checkmark" size={22} color="#fff" />
           <ThemedText style={[styles.actionLabel, { color: '#fff' }]}>
-            Accept &amp; chat
+            Accept
           </ThemedText>
         </Pressable>
       </View>

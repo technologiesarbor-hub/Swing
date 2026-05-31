@@ -8,6 +8,7 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getInitials } from '@/lib/initials';
 import { findSenderById } from '@/lib/mock-planes';
 
 export default function UserProfileScreen() {
@@ -89,9 +91,20 @@ export default function UserProfileScreen() {
               { backgroundColor: c.tintMuted, borderColor: c.surface },
             ]}
           >
-            <ThemedText style={[styles.bigAvatarInitial, { color: c.tintPressed }]}>
-              {user.name.charAt(0).toUpperCase()}
-            </ThemedText>
+            {user.avatarUrl ? (
+              <Image
+                source={{ uri: user.avatarUrl }}
+                style={styles.bigAvatarImage}
+                contentFit="cover"
+              />
+            ) : (
+              <ThemedText
+                style={[styles.bigAvatarInitial, { color: c.tintPressed }]}
+                allowFontScaling={false}
+              >
+                {getInitials(user.name)}
+              </ThemedText>
+            )}
             {user.onlineNow ? (
               <View
                 style={[
@@ -298,15 +311,25 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     marginBottom: Spacing.md,
     position: 'relative',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
+  bigAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 56,
+  },
   bigAvatarInitial: {
-    fontSize: 48,
+    fontSize: 40,
+    lineHeight: 44,
     fontWeight: '700',
+    includeFontPadding: false,
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
   onlineDot: {
     position: 'absolute',

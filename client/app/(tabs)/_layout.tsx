@@ -21,7 +21,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -33,6 +33,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useChats } from '@/lib/chats-context';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -70,6 +71,15 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const c = Colors[scheme];
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
+  const { chats } = useChats();
+  const chatsUnread = useMemo(
+    () =>
+      chats.reduce(
+        (sum, chat) => sum + (chat.isBlocked ? 0 : chat.unreadCount),
+        0,
+      ),
+    [chats],
+  );
 
   const tabCount = state.routes.length;
   const tabWidth = screenWidth / tabCount;
@@ -129,6 +139,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             focused={isFocused}
             activeColor={c.tint}
             inactiveColor={c.tabIconDefault}
+            badge={route.name === 'chats' ? chatsUnread : 0}
+            badgeColor={c.tint}
             onPress={onPress}
           />
         );
@@ -148,6 +160,8 @@ type TabItemProps = {
   focused: boolean;
   activeColor: string;
   inactiveColor: string;
+  badge?: number;
+  badgeColor?: string;
   onPress: () => void;
 };
 
@@ -158,6 +172,8 @@ function TabItem({
   focused,
   activeColor,
   inactiveColor,
+  badge = 0,
+  badgeColor = '#FD425E',
   onPress,
 }: TabItemProps) {
   const focus = useSharedValue(focused ? 1 : 0);
@@ -191,6 +207,13 @@ function TabItem({
         <Animated.View style={[styles.iconLayer, activeIconStyle]}>
           <Ionicons name={activeIcon} size={22} color={activeColor} />
         </Animated.View>
+        {badge > 0 ? (
+          <View style={[styles.tabBadge, { backgroundColor: badgeColor }]}>
+            <ThemedText style={styles.tabBadgeText}>
+              {badge > 9 ? '9+' : badge}
+            </ThemedText>
+          </View>
+        ) : null}
       </Animated.View>
       <Animated.View style={labelStyle}>
         <ThemedText
@@ -229,6 +252,24 @@ const styles = StyleSheet.create({
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+  },
+  tabBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+    lineHeight: 11,
   },
   iconLayer: {
     position: 'absolute',

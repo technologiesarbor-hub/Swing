@@ -21,12 +21,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   useWindowDimensions,
   View,
@@ -44,6 +46,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FriendsCelebration } from '@/components/friends-celebration';
 import { PlaneCard } from '@/components/plane-card';
+import { TabNavHeader } from '@/components/tab-nav-header';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { WelcomeDialog } from '@/components/welcome-dialog';
@@ -101,6 +104,7 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const listRef = useRef<FlatList<Plane>>(null);
   const [index, setIndex] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const fadeStyle = useTabFocusFade();
   const router = useRouter();
   const { acceptPlane, chats } = useChats();
@@ -241,28 +245,49 @@ export default function HomeScreen() {
     listRef.current?.scrollToIndex({ index: index + 1, animated: true });
   };
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRejectedIds(new Set());
+    setIndex(0);
+    scrollX.value = 0;
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    setRefreshing(false);
+  }, [scrollX]);
+
   return (
     <SafeAreaView
       edges={['top']}
       style={[styles.root, { backgroundColor: c.background }]}
     >
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.refreshScroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={c.tint}
+            colors={[c.tint]}
+          />
+        }
+      >
       {/* Header is its own tab-swipe region. The card carousel below has
           its own horizontal FlatList for card-by-card swiping, so wrapping
           it in TabSwipeRegion would fight the FlatList's pan. Wrapping the
           header + dots as separate swipe regions gives the user "swipe
           anywhere except on a card to change tab" — Instagram-style. */}
       <TabSwipeRegion currentRoute="/">
-        <Animated.View style={[styles.header, fadeStyle]}>
-          {/* Cursive wordmark — replaces the old text + dotted trail.
-              The PNG already contains a tiny paper-plane swooping off
-              the 'g', so we don't need an Ionicon next to it. */}
-          <Image
-            source={require('@/assets/images/swing-logo.png')}
-            style={styles.brandLogo}
-            contentFit="contain"
-          />
-
-          <View style={styles.headerActions}>
+        <Animated.View style={fadeStyle}>
+          <TabNavHeader route="/" compact>
+            <Image
+              source={require('@/assets/images/swing-logo.png')}
+              style={styles.brandLogo}
+              contentFit="contain"
+            />
+            <View style={styles.headerActions}>
             <Pressable
               hitSlop={10}
               style={styles.headerIconBtn}
@@ -299,6 +324,7 @@ export default function HomeScreen() {
               ) : null}
             </Pressable>
           </View>
+          </TabNavHeader>
         </Animated.View>
       </TabSwipeRegion>
 
@@ -401,6 +427,7 @@ export default function HomeScreen() {
         </View>
       </View>
       </TabSwipeRegion>
+      </ScrollView>
 
       {/* Mini-profile dialog shown after accepting a plane. The chat
           thread is already created; the user decides whether to dive
@@ -467,28 +494,24 @@ function PageDot({ index, pageWidth, scrollX, activeColor, inactiveColor }: Page
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
+  flex: { flex: 1 },
+  refreshScroll: {
+    flexGrow: 1,
   },
-  // Cursive wordmark — Instagram-style. Sized noticeably bigger than
-  // the 22px Ionicons on the right so the brand reads as the visual
-  // anchor of the header. Transparent RGBA PNG, contentFit="contain"
-  // preserves the 1.5:1 aspect of the source PNG.
   brandLogo: {
     height: 40,
     width: 120,
+    alignSelf: 'flex-start',
+    marginLeft: -2,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
+    marginLeft: 'auto',
+    marginRight: -2,
   },
-  headerIconBtn: { padding: 4 },
+  headerIconBtn: { padding: 2 },
   badge: {
     position: 'absolute',
     top: 0,

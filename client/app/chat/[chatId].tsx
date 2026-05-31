@@ -56,7 +56,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -67,7 +66,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { FlatList, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   Extrapolation,
@@ -499,8 +498,12 @@ export default function ChatScreen() {
       >
         <FlatList
           ref={listRef}
+          style={styles.flex}
           data={chat.messages}
           keyExtractor={(m) => m.id}
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           contentContainerStyle={styles.list}
           renderItem={({ item, index }) => (
             <SwipeableBubble
@@ -736,30 +739,23 @@ function SwipeableBubble({
   disabled?: boolean;
   children: React.ReactNode;
 }) {
-  // Direction: partner messages swipe RIGHT (positive X), my messages
-  // swipe LEFT (negative X). Matches WhatsApp's slide-to-reply.
-  const directionSign = isMe ? -1 : 1;
+  // Swipe right on any bubble to reply (same gesture for sent and
+  // received). Left-only swipes on right-aligned "my" bubbles were
+  // hard to trigger and felt broken on iOS.
   const translateX = useSharedValue(0);
 
   const pan = Gesture.Pan()
     .enabled(!disabled)
-    .activeOffsetX(directionSign > 0 ? [12, 999] : [-999, -12])
-    .failOffsetY([-15, 15])
+    .activeOffsetX([14, 999])
+    .failOffsetY([-10, 10])
     .onUpdate((e) => {
       'worklet';
-      // Allow only same-sign drag; clamp magnitude to SWIPE_MAX_TRAVEL.
-      const dx = e.translationX;
-      if (Math.sign(dx) === directionSign || dx === 0) {
-        const mag = Math.min(Math.abs(dx), SWIPE_MAX_TRAVEL);
-        translateX.value = mag * directionSign;
-      }
+      const dx = Math.max(0, e.translationX);
+      translateX.value = Math.min(dx, SWIPE_MAX_TRAVEL);
     })
     .onEnd((e) => {
       'worklet';
-      const past =
-        Math.sign(e.translationX) === directionSign &&
-        Math.abs(e.translationX) > SWIPE_REPLY_THRESHOLD;
-      if (past) {
+      if (e.translationX > SWIPE_REPLY_THRESHOLD) {
         runOnJS(onReply)();
       }
       translateX.value = withTiming(0, { duration: 220 });
@@ -793,11 +789,7 @@ function SwipeableBubble({
       {/* Reply icon ghost that fades in behind the bubble. */}
       <Animated.View
         pointerEvents="none"
-        style={[
-          styles.swipeIcon,
-          isMe ? styles.swipeIconRight : styles.swipeIconLeft,
-          iconStyle,
-        ]}
+        style={[styles.swipeIcon, styles.swipeIconLeft, iconStyle]}
       >
         <View
           style={[
@@ -849,13 +841,19 @@ function MessageBubble({
   const isDeleted = !!message.deletedAt;
 
   // View-once states:
-  //   - sender side:    show normal media + a "1×" badge
-  //   - receiver locked: show "Tap to view" tile
-  //   - both, viewed:   show "Opened" destroyed placeholder
+  //   - sender: closed lock (top-left) until opened → open lock
+  //   - receiver locked: "Tap to view" tile
+  //   - both, viewed: tombstone + open lock on sender bubble
   const isViewOnce = !!message.viewOnce;
   const isViewed = !!message.viewedAt;
   const isLocked = isViewOnce && !isViewed && !isMe;
   const isDestroyed = isViewOnce && isViewed;
+  const showViewOnceLock = isViewOnce && isMe && !isDeleted;
+  const viewOnceLockIcon = isViewed
+    ? 'lock-open-outline'
+    : 'lock-closed-outline';
+  const hasReaction = !!message.reaction;
+  const showStatus = isMe && isLastMine && !isDeleted;
 
   const handlePress = () => {
     if (isDeleted || isDestroyed) return;
@@ -877,10 +875,37 @@ function MessageBubble({
       style={[
         styles.bubbleRow,
         isMe ? styles.bubbleRowMe : styles.bubbleRowThem,
-        { marginTop: isFirstInGroup ? Spacing.md : 2 },
+        {
+          marginTop: isFirstInGroup ? Spacing.md : 2,
+          marginBottom: hasReaction ? 4 : 0,
+        },
       ]}
     >
-      <Pressable
+      <View
+        style={[
+          styles.bubbleWrap,
+          isMe ? styles.bubbleWrapMe : styles.bubbleWrapThem,
+          hasReaction && styles.bubbleWrapWithReaction,
+          showViewOnceLock && styles.bubbleWrapWithLock,
+        ]}
+      >
+        {showViewOnceLock ? (
+          <View
+            style={[
+              styles.attachPill,
+              styles.viewOnceLockPill,
+              { backgroundColor: c.surface, borderColor: c.border },
+            ]}
+          >
+            <Ionicons
+              name={viewOnceLockIcon}
+              size={13}
+              color={c.textMuted}
+            />
+          </View>
+        ) : null}
+
+        <Pressable
         onPress={handlePress}
         onLongPress={onLongPress}
         delayLongPress={280}
@@ -960,19 +985,12 @@ function MessageBubble({
             {message.text}
           </ThemedText>
         )}
+      </Pressable>
 
-        {/* "1×" view-once badge — sender side only, while the message is
-            still alive. */}
-        {isViewOnce && isMe && !isDestroyed ? (
-          <View style={styles.viewOnceBadge}>
-            <ThemedText style={styles.viewOnceBadgeText}>1×</ThemedText>
-          </View>
-        ) : null}
-
-        {message.reaction ? (
+        {hasReaction ? (
           <View
             style={[
-              styles.reactionPill,
+              styles.attachPill,
               isMe ? styles.reactionPillMe : styles.reactionPillThem,
               { backgroundColor: c.surface, borderColor: c.border },
             ]}
@@ -982,7 +1000,7 @@ function MessageBubble({
             </ThemedText>
           </View>
         ) : null}
-      </Pressable>
+      </View>
 
       {/* "edited" tag — kept subtle. */}
       {!isDeleted && message.editedAt && message.kind === 'text' ? (
@@ -992,8 +1010,12 @@ function MessageBubble({
       ) : null}
 
       {/* Status label under last me-message only. */}
-      {isMe && isLastMine && !isDeleted ? (
-        <StatusLabel status={message.status} mutedColor={c.textMuted} />
+      {showStatus ? (
+        <StatusLabel
+          status={message.status}
+          mutedColor={c.textMuted}
+          hasReaction={hasReaction}
+        />
       ) : null}
     </View>
   );
@@ -1214,9 +1236,11 @@ function AudioBubble({
 function StatusLabel({
   status,
   mutedColor,
+  hasReaction = false,
 }: {
   status: ChatMessage['status'];
   mutedColor: string;
+  hasReaction?: boolean;
 }) {
   let label: string;
   let icon: keyof typeof Ionicons.glyphMap;
@@ -1244,7 +1268,12 @@ function StatusLabel({
   }
 
   return (
-    <View style={styles.statusLabelRow}>
+    <View
+      style={[
+        styles.statusLabelRow,
+        hasReaction && styles.statusLabelRowWithReaction,
+      ]}
+    >
       <Ionicons name={icon} size={12} color={color} />
       <ThemedText style={[styles.statusLabelText, { color }]}>{label}</ThemedText>
     </View>
@@ -1649,6 +1678,7 @@ const styles = StyleSheet.create({
 
   // ── List ────────────────────────────────────────────────────────────
   list: {
+    flexGrow: 1,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     paddingBottom: Spacing.lg,
@@ -1748,22 +1778,42 @@ const styles = StyleSheet.create({
   },
   tombstoneText: { fontSize: 13, fontStyle: 'italic' },
 
-  // 1× sender badge sitting in the corner of a still-alive view-once bubble
-  viewOnceBadge: {
+  bubbleWrap: {
+    position: 'relative',
+    maxWidth: '82%',
+  },
+  bubbleWrapWithReaction: {
+    marginBottom: 14,
+  },
+  bubbleWrapWithLock: {
+    marginTop: 9,
+  },
+  bubbleWrapMe: {
+    alignSelf: 'flex-end',
+  },
+  bubbleWrapThem: {
+    alignSelf: 'flex-start',
+  },
+  attachPill: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
-  viewOnceBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
+  /** Half-on / half-off top-right — WhatsApp view-once lock chip. */
+  viewOnceLockPill: {
+    top: 0,
+    right: 2,
+    transform: [{ translateY: -10 }],
   },
 
   // "edited" subscript
@@ -1796,23 +1846,24 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 4,
     marginRight: 4,
+    alignSelf: 'flex-end',
+  },
+  statusLabelRowWithReaction: {
+    marginTop: 2,
+    marginRight: 8,
   },
   statusLabelText: { fontSize: 11, fontWeight: '500' },
-  reactionPill: {
-    position: 'absolute',
-    bottom: -10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
+  /** Outgoing: bottom-left kiss; incoming: bottom-right — WhatsApp-style. */
+  reactionPillMe: {
+    bottom: -1,
+    left: 2,
+    transform: [{ translateY: 15 }],
   },
-  reactionPillMe: { right: 12 },
-  reactionPillThem: { left: 12 },
+  reactionPillThem: {
+    bottom: -1,
+    right: 2,
+    transform: [{ translateY: 15 }],
+  },
   reactionEmoji: { fontSize: 13 },
   reactionButton: {
     width: 40,

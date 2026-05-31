@@ -7,16 +7,18 @@
  *     (theme by every screen, sound by composer / call screens, etc.).
  *     One provider keeps it simple.
  *
- * Note: persistence (AsyncStorage / SecureStore) is intentionally
- * skipped for MVP — values reset between app launches. Wire up
- * `expo-secure-store` once the account flow lands.
+ * Profile + preferences persist to AsyncStorage so onboarding
+ * details survive app restarts. Auth session is separate
+ * (`auth-context`); this store is the local user profile blob.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -39,6 +41,7 @@ export type LocalUser = {
    *  and the explicit `age` field is kept around only for legacy reads. */
   dob?: string;
   age?: number;
+  gender?: 'M' | 'F' | 'NB';
   interests?: string[];
   joinedAt: string; // ISO
 
@@ -108,6 +111,15 @@ const DEFAULT_USER: LocalUser = {
   joinedAt: new Date().toISOString(),
 };
 
+const PROFILE_KEY = 'swing/v1/user/profile';
+const PREFS_KEY = 'swing/v1/user/prefs';
+
+type StoredPrefs = {
+  sound: boolean;
+  pushNotifications: boolean;
+  themePref: ThemePreference;
+};
+
 const UserSettingsContext = createContext<UserSettingsContextValue | null>(null);
 
 export function UserSettingsProvider({ children }: { children: ReactNode }) {
@@ -115,18 +127,56 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
   const [pushNotifications, setPushNotifications] = useState(true);
   const [themePref, setThemePref] = useState<ThemePreference>('system');
   const [user, setUser] = useState<LocalUser>(DEFAULT_USER);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [profileRaw, prefsRaw] = await Promise.all([
+          AsyncStorage.getItem(PROFILE_KEY),
+          AsyncStorage.getItem(PREFS_KEY),
+        ]);
+        if (profileRaw) {
+          const parsed = JSON.parse(profileRaw) as LocalUser;
+          setUser({ ...DEFAULT_USER, ...parsed, id: 'me' });
+        }
+        if (prefsRaw) {
+          const p = JSON.parse(prefsRaw) as StoredPrefs;
+          if (typeof p.sound === 'boolean') setSound(p.sound);
+          if (typeof p.pushNotifications === 'boolean') {
+            setPushNotifications(p.pushNotifications);
+          }
+          if (p.themePref) setThemePref(p.themePref);
+        }
+      } catch {
+        /* keep defaults */
+      } finally {
+        setHydrated(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(user)).catch(() => {});
+  }, [user, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const prefs: StoredPrefs = { sound, pushNotifications, themePref };
+    AsyncStorage.setItem(PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
+  }, [sound, pushNotifications, themePref, hydrated]);
 
   const updateUser = useCallback((patch: Partial<LocalUser>) => {
     setUser((u) => ({ ...u, ...patch }));
   }, []);
 
   const deleteAccount = useCallback(() => {
-    // TODO: call auth/delete endpoint when backend is wired up.
-    // For now just reset the in-memory state.
     setUser(DEFAULT_USER);
     setSound(true);
     setPushNotifications(true);
     setThemePref('system');
+    AsyncStorage.multiRemove([PROFILE_KEY, PREFS_KEY]).catch(() => {});
   }, []);
 
   const value = useMemo<UserSettingsContextValue>(

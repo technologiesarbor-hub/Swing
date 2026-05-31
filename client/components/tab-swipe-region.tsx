@@ -28,66 +28,72 @@
 
 import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
-import { StyleSheet, View, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
+import { View, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 
 // Tab order — must match (tabs)/_layout.tsx left-to-right.
-const TAB_ROUTES = ['/', '/chats', '/send', '/travel', '/profile'] as const;
+export const TAB_ROUTES = ['/', '/chats', '/send', '/travel', '/profile'] as const;
 export type TabRoute = (typeof TAB_ROUTES)[number];
 
 type Props = {
   currentRoute: TabRoute;
   children?: ReactNode;
   style?: ViewStyle;
+  /**
+   * When the child is a RNGH `FlatList` / `ScrollView`, set this so
+   * horizontal tab swipes and vertical list scroll work together.
+   */
+  withNativeScroll?: boolean;
 };
 
-export function TabSwipeRegion({ currentRoute, children, style }: Props) {
+export function TabSwipeRegion({
+  currentRoute,
+  children,
+  style,
+  withNativeScroll,
+}: Props) {
   const router = useRouter();
   const currentIndex = TAB_ROUTES.indexOf(currentRoute);
 
-  const navigateTo = (offset: number) => {
-    const target = currentIndex + offset;
-    if (target < 0 || target >= TAB_ROUTES.length) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    router.navigate(TAB_ROUTES[target] as any);
-  };
+  const gesture = useMemo(() => {
+    const navigateTo = (offset: number) => {
+      const target = currentIndex + offset;
+      if (target < 0 || target >= TAB_ROUTES.length) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.navigate(TAB_ROUTES[target] as any);
+    };
 
-  // Tuned thresholds:
-  //   activeOffsetX [-14, 14] → kicks in after 14px horizontal travel
-  //                             (snappier than before, still ignores taps)
-  //   failOffsetY  [-12, 12]  → bails if movement is mostly vertical
-  //   onEnd threshold = 36px → past 36px OR fast velocity → commit
-  //
-  // We also commit on flick velocity so a quick flick over a small distance
-  // still switches tabs (Instagram-like feel).
-  const pan = Gesture.Pan()
-    .activeOffsetX([-14, 14])
-    .failOffsetY([-12, 12])
-    .onEnd((e) => {
-      'worklet';
-      const SWIPE_DIST = 36;
-      const FLICK_VEL = 600;
-      if (
-        e.translationX < -SWIPE_DIST ||
-        (e.velocityX < -FLICK_VEL && e.translationX < -10)
-      ) {
-        runOnJS(navigateTo)(1);
-      } else if (
-        e.translationX > SWIPE_DIST ||
-        (e.velocityX > FLICK_VEL && e.translationX > 10)
-      ) {
-        runOnJS(navigateTo)(-1);
-      }
-    });
+    const pan = Gesture.Pan()
+      .activeOffsetX([-14, 14])
+      .failOffsetY([-12, 12])
+      .onEnd((e) => {
+        'worklet';
+        const SWIPE_DIST = 36;
+        const FLICK_VEL = 600;
+        if (
+          e.translationX < -SWIPE_DIST ||
+          (e.velocityX < -FLICK_VEL && e.translationX < -10)
+        ) {
+          runOnJS(navigateTo)(1);
+        } else if (
+          e.translationX > SWIPE_DIST ||
+          (e.velocityX > FLICK_VEL && e.translationX > 10)
+        ) {
+          runOnJS(navigateTo)(-1);
+        }
+      });
+
+    if (!withNativeScroll) return pan;
+    return Gesture.Simultaneous(pan, Gesture.Native());
+  }, [currentIndex, router, withNativeScroll]);
 
   // IMPORTANT: do NOT default `style` to `{ flex: 1 }`. Consumers that
   // wrap full-screen content pass `{ flex: 1 }` explicitly; consumers that
   // wrap a fixed-height band (a header, a dots row) want natural sizing.
-  // Defaulting to flex:1 caused fixed-height wrappers to greedily consume
-  // half the screen and push centered content out of position.
   return (
-    <GestureDetector gesture={pan}>
+    <GestureDetector gesture={gesture}>
       <View style={style}>{children}</View>
     </GestureDetector>
   );

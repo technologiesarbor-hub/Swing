@@ -17,6 +17,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getInitials } from '@/lib/initials';
 
 type Props = {
   /** Avatar image URI (file:// or http(s)). When undefined, fall back to initial. */
@@ -49,7 +50,11 @@ export function Avatar({
   const c = Colors[scheme];
 
   const innerSize = hasStatus ? size - (ringWidth + 2) * 2 : size;
-  const initial = name.charAt(0).toUpperCase();
+  const initial = getInitials(name);
+  const initialFontSize =
+    initial.length > 1 ? innerSize * 0.32 : innerSize * 0.38;
+  const initialLineHeight =
+    initial.length > 1 ? innerSize * 0.36 : innerSize * 0.42;
 
   const inner = (
     <View
@@ -77,8 +82,15 @@ export function Avatar({
         <ThemedText
           style={[
             styles.initial,
-            { color: c.tintPressed, fontSize: innerSize * 0.42 },
+            {
+              color: c.tintPressed,
+              fontSize: initialFontSize,
+              lineHeight: initialLineHeight,
+              width: innerSize,
+              textAlign: 'center',
+            },
           ]}
+          allowFontScaling={false}
         >
           {initial}
         </ThemedText>
@@ -149,7 +161,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  initial: { fontWeight: '700' },
+  initial: {
+    fontWeight: '700',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   onlineDot: {
     position: 'absolute',
     bottom: 1,

@@ -13,6 +13,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { TabNavHeader } from '@/components/tab-nav-header';
 import { TabSwipeRegion, type TabRoute } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
@@ -39,6 +40,9 @@ export function ScreenPlaceholder({ title, subtitle, icon, currentRoute }: Props
       style={[styles.root, { backgroundColor: c.background }]}
     >
       <TabSwipeRegion currentRoute={currentRoute} style={styles.fill}>
+        <TabNavHeader route={currentRoute}>
+          <View style={styles.headerSpacer} />
+        </TabNavHeader>
         <Animated.View style={[styles.body, fadeStyle]}>
           <View style={[styles.iconCircle, { backgroundColor: c.tintMuted }]}>
             <Ionicons name={icon} size={36} color={c.tint} />
@@ -56,6 +60,7 @@ export function ScreenPlaceholder({ title, subtitle, icon, currentRoute }: Props
 const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
+  headerSpacer: { flex: 1 },
   body: {
     flex: 1,
     alignItems: 'center',

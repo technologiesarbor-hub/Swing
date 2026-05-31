@@ -35,6 +35,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { HashtagEditor } from '@/components/hashtag-editor';
+import { TabNavHeader } from '@/components/tab-nav-header';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
@@ -70,8 +71,7 @@ export default function ProfileScreen() {
   const [showAllTags, setShowAllTags] = useState(false);
   const [showHashtagEditor, setShowHashtagEditor] = useState(false);
 
-  const handleChangeAvatar = async () => {
-    Haptics.selectionAsync();
+  const pickAvatarFromGallery = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert(
@@ -90,6 +90,26 @@ export default function ProfileScreen() {
     updateUser({ avatarUri: result.assets[0].uri });
   };
 
+  const handleChangeAvatar = () => {
+    Haptics.selectionAsync();
+    if (user.avatarUri) {
+      Alert.alert('Profile photo', undefined, [
+        { text: 'Update photo', onPress: () => void pickAvatarFromGallery() },
+        {
+          text: 'Remove photo',
+          style: 'destructive',
+          onPress: () => updateUser({ avatarUri: undefined }),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+      return;
+    }
+    Alert.alert('Profile photo', undefined, [
+      { text: 'Add photo', onPress: () => void pickAvatarFromGallery() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const handleShare = async () => {
     try {
       await Share.share({
@@ -106,27 +126,29 @@ export default function ProfileScreen() {
       style={[styles.root, { backgroundColor: c.background }]}
     >
       <TabSwipeRegion currentRoute="/profile">
-        <Animated.View style={[styles.header, fadeStyle]}>
-          <View style={styles.headerLeft}>
-            <ThemedText style={styles.username}>@{user.username}</ThemedText>
-            {user.city || user.country ? (
-              <ThemedText style={[styles.usernameSub, { color: c.textMuted }]}>
-                · {user.city ?? user.country}
-              </ThemedText>
-            ) : null}
-          </View>
+        <Animated.View style={fadeStyle}>
+          <TabNavHeader route="/profile">
+            <View style={styles.headerLeft}>
+              <ThemedText style={styles.username}>@{user.username}</ThemedText>
+              {user.city || user.country ? (
+                <ThemedText style={[styles.usernameSub, { color: c.textMuted }]}>
+                  · {user.city ?? user.country}
+                </ThemedText>
+              ) : null}
+            </View>
 
-          <Pressable
-            hitSlop={10}
-            onPress={() => router.push('/settings')}
-            style={({ pressed }) => [
-              styles.iconButton,
-              { backgroundColor: c.surfaceAlt },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Ionicons name="settings-outline" size={20} color={c.text} />
-          </Pressable>
+            <Pressable
+              hitSlop={10}
+              onPress={() => router.push('/settings')}
+              style={({ pressed }) => [
+                styles.iconButton,
+                { backgroundColor: c.surfaceAlt },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons name="settings-outline" size={20} color={c.text} />
+            </Pressable>
+          </TabNavHeader>
         </Animated.View>
       </TabSwipeRegion>
 
@@ -135,6 +157,8 @@ export default function ProfileScreen() {
           <ScrollView
             contentContainerStyle={styles.scroll}
             showsVerticalScrollIndicator={false}
+            directionalLockEnabled
+            nestedScrollEnabled
           >
             {/* Avatar + stats */}
             <View style={styles.topRow}>
@@ -648,7 +672,7 @@ function PlanesBucket({
 
   return (
     <View style={styles.bucket}>
-      <Pressable onPress={onPressHeader} style={styles.bucketHeader}>
+      <View style={styles.bucketHeader}>
         <View style={[styles.bucketDot, { backgroundColor: tint }]} />
         <Ionicons name={icon} size={15} color={tint} />
         <ThemedText style={[styles.bucketTitle, { color: tint }]}>
@@ -659,8 +683,10 @@ function PlanesBucket({
             {total}
           </ThemedText>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
-      </Pressable>
+        <Pressable onPress={onPressHeader} hitSlop={8} style={styles.bucketChevron}>
+          <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
+        </Pressable>
+      </View>
 
       {items.length === 0 ? (
         <View
@@ -824,13 +850,6 @@ function timeAgo(iso: string): string {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-  },
   headerLeft: {
     flex: 1,
     flexDirection: 'row',
@@ -848,7 +867,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
   },
 
   topRow: {
@@ -943,6 +961,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingLeft: Spacing.xs,
+  },
+  bucketChevron: {
+    marginLeft: 'auto',
+    padding: 4,
   },
   bucketDot: {
     width: 8,

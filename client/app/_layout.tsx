@@ -179,6 +179,8 @@ function ThemedRoot() {
                   options={{
                     presentation: 'fullScreenModal',
                     animation: 'fade',
+                    headerShown: false,
+                    statusBarStyle: 'light',
                   }}
                 />
               </Stack>
