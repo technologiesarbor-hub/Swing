@@ -1,0 +1,22 @@
+# Copy to dev.local.yaml (gitignored) for local secrets.
+# PROFILE=dev SETUP=local go run .
+
+database:
+  url: "postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
+
+auth:
+  jwt_secret: "replace-with-openssl-rand-hex-32"
+  # Web client ID from Google Cloud Console (OAuth 2.0)
+  google_client_id: "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com"
+  # iOS/Android native id_tokens use platform client as aud — list all you use.
+  google_client_ids:
+    - "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com"
+    - "YOUR_EXPO_GO_IOS_CLIENT_ID.apps.googleusercontent.com"
+
+# Cloudflare R2 — avatars + status + chat (see /AVATAR-R2-SETUP.md)
+r2:
+  account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+  access_key_id: "YOUR_R2_ACCESS_KEY_ID"
+  secret_access_key: "YOUR_R2_SECRET_ACCESS_KEY"
+  bucket: "swing-media"
+  public_base_url: "https://pub-xxxxxxxx.r2.dev"

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -e
+cd "$(dirname "$0")/../.."
+echo "Running tests for serving..."
+go vet ./...
+go test -race ./...

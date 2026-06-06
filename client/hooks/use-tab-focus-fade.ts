@@ -28,7 +28,7 @@ import {
 // Tab order from left to right in the bottom tab bar — kept in sync with
 // `tab-swipe-region.tsx`. Anything not in this list is treated as
 // neutral and slides in from the right.
-const TAB_ORDER = ['/', '/chats', '/send', '/travel', '/profile'] as const;
+const TAB_ORDER = ['/', '/chats', '/send', '/explore', '/profile'] as const;
 
 // Module-scoped "what was the last focused tab" so we can compute slide
 // direction without each screen having to wire it up themselves.

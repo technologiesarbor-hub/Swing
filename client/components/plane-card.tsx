@@ -16,6 +16,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { SwipeSafePressable } from '@/components/swipe-safe-pressable';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -42,36 +43,33 @@ export function PlaneCard({
   const avatarInitial = plane.sender.name.charAt(0).toUpperCase();
 
   return (
-    <Pressable
-      onPress={() => onOpen?.(plane)}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.card,
         {
           backgroundColor: c.surface,
           borderColor: c.border,
-          opacity: pressed ? 0.96 : 1,
-          transform: [{ scale: pressed ? 0.995 : 1 }],
         },
       ]}
     >
+      <SwipeSafePressable
+        onPress={() => onOpen?.(plane)}
+        style={styles.cardBody}
+      >
       {/* Top: sender info + age pill */}
       <View style={styles.topRow}>
         <View style={styles.senderRow}>
-          <Pressable
+          <SwipeSafePressable
             onPress={() => onOpenProfile?.(plane)}
-            hitSlop={8}
-            style={({ pressed }) => [
+            style={[
               styles.avatar,
-              {
-                backgroundColor: c.tintMuted,
-                opacity: pressed ? 0.7 : 1,
-              },
+              { backgroundColor: c.tintMuted },
             ]}
           >
             <ThemedText style={[styles.avatarInitial, { color: c.tintPressed }]}>
               {avatarInitial}
             </ThemedText>
-          </Pressable>
+          </SwipeSafePressable>
           <View style={styles.senderText}>
             <ThemedText style={styles.senderName} numberOfLines={1}>
               {plane.sender.name}
@@ -114,8 +112,10 @@ export function PlaneCard({
           />
         ))}
       </View>
+      </SwipeSafePressable>
 
-      {/* Action buttons */}
+      {/* Action buttons — outside the card press target so Accept/Reject
+          don't also open the plane-detail screen. */}
       <View style={styles.actions}>
         <Pressable
           onPress={() => onReject?.(plane)}
@@ -155,7 +155,7 @@ export function PlaneCard({
           { borderColor: c.border, backgroundColor: c.surfaceAlt },
         ]}
       />
-    </Pressable>
+    </View>
   );
 }
 
@@ -172,6 +172,9 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
+  },
+  cardBody: {
+    flex: 1,
   },
   topRow: {
     flexDirection: 'row',

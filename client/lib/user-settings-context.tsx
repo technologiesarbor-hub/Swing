@@ -13,6 +13,8 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { joinInterests } from '@/lib/interests';
 import {
   createContext,
   type ReactNode,
@@ -42,7 +44,8 @@ export type LocalUser = {
   dob?: string;
   age?: number;
   gender?: 'M' | 'F' | 'NB';
-  interests?: string[];
+  /** Comma-separated hashtags stored on the server, e.g. "music,travel". */
+  interests?: string;
   joinedAt: string; // ISO
 
   // ── Account info shown on the edit-profile screen ──────────────────
@@ -66,8 +69,12 @@ export type LocalUser = {
 };
 
 export type StatusItem = {
-  /** Local file URI of the media. */
+  /** Server status row id (when synced from API). */
+  id?: string;
+  /** View URL — local file:// while drafting, presigned/CDN when posted. */
   uri: string;
+  /** R2 object key for re-fetching a presigned view URL. */
+  mediaKey?: string;
   /** image or video — drives the preview renderer. */
   kind: 'image' | 'video';
   /** ISO timestamp of when this slide was posted. Used for the
@@ -107,7 +114,7 @@ const DEFAULT_USER: LocalUser = {
   name: '',
   username: '',
   bio: '',
-  interests: [],
+  interests: '',
   joinedAt: new Date().toISOString(),
 };
 
@@ -137,8 +144,16 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
           AsyncStorage.getItem(PREFS_KEY),
         ]);
         if (profileRaw) {
-          const parsed = JSON.parse(profileRaw) as LocalUser;
-          setUser({ ...DEFAULT_USER, ...parsed, id: 'me' });
+          const parsed = JSON.parse(profileRaw) as LocalUser & {
+            interests?: string | string[];
+          };
+          const interests =
+            typeof parsed.interests === 'string'
+              ? parsed.interests
+              : Array.isArray(parsed.interests)
+                ? joinInterests(parsed.interests)
+                : '';
+          setUser({ ...DEFAULT_USER, ...parsed, id: 'me', interests });
         }
         if (prefsRaw) {
           const p = JSON.parse(prefsRaw) as StoredPrefs;

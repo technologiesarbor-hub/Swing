@@ -44,7 +44,7 @@ const TAB_CONFIG: Record<
   index: { active: 'home', inactive: 'home-outline', label: 'Home' },
   chats: { active: 'chatbubble', inactive: 'chatbubble-outline', label: 'Chats' },
   send: { active: 'paper-plane', inactive: 'paper-plane-outline', label: 'Send' },
-  travel: { active: 'globe', inactive: 'globe-outline', label: 'Travel' },
+  explore: { active: 'compass', inactive: 'compass-outline', label: 'Explore' },
   profile: { active: 'person', inactive: 'person-outline', label: 'Profile' },
 };
 
@@ -60,7 +60,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="chats" options={{ title: 'Chats' }} />
       <Tabs.Screen name="send" options={{ title: 'Send' }} />
-      <Tabs.Screen name="travel" options={{ title: 'Travel' }} />
+      <Tabs.Screen name="explore" options={{ title: 'Explore' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

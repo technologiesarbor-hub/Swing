@@ -18,9 +18,10 @@ import DateTimePicker, {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -35,11 +36,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
+import { BlockingLoader } from '@/components/blocking-loader';
 import { HashtagEditor } from '@/components/hashtag-editor';
+import { ImageViewerModal } from '@/components/image-viewer-modal';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import type { ProfilePatchBody } from '@/lib/api/auth-types';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
+import { joinInterests, parseInterests } from '@/lib/interests';
 import { COUNTRIES } from '@/lib/countries';
+import { authUserToLocalPatch } from '@/lib/profile-from-auth';
+import { isUsernameAvailable } from '@/lib/usernames';
 import { type LocalUser, useUserSettings } from '@/lib/user-settings-context';
 
 export default function EditProfileScreen() {
@@ -47,9 +55,20 @@ export default function EditProfileScreen() {
   const c = Colors[scheme];
   const router = useRouter();
   const { user, updateUser } = useUserSettings();
+  const auth = useAuth();
+  const saveProfile = auth.saveProfile;
 
-  // Local draft — only commits on save.
+  // Local draft — commits to API on save (not AsyncStorage alone).
   const [draft, setDraft] = useState<LocalUser>(user);
+  const [saving, setSaving] = useState(false);
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      setDraft(user);
+    }, [user]),
+  );
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [showHashtagEditor, setShowHashtagEditor] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
@@ -97,10 +116,53 @@ export default function EditProfileScreen() {
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(user);
 
-  const handleSave = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    updateUser(draft);
-    router.back();
+  const handleSave = async () => {
+    if (auth.status !== 'signed-in') {
+      Alert.alert('Not signed in', 'Please sign in again.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const nextUsername = draft.username.trim().toLowerCase();
+      const currentUsername = auth.user.username?.toLowerCase() ?? '';
+      if (nextUsername && nextUsername !== currentUsername) {
+        const free = await isUsernameAvailable(nextUsername);
+        if (!free) {
+          Alert.alert('Username taken', 'That username is already in use.');
+          return;
+        }
+      }
+
+      const patch: ProfilePatchBody = {
+        name: draft.name.trim() || undefined,
+        username: nextUsername || undefined,
+        bio: draft.bio.trim(),
+        city: draft.city?.trim() || undefined,
+        country: draft.country?.trim() || undefined,
+        dob: draft.dob,
+        gender: draft.gender,
+        interests: draft.interests ?? '',
+      };
+
+      const saved = await saveProfile(patch);
+      updateUser({
+        ...authUserToLocalPatch(saved),
+        avatarUri: draft.avatarUri,
+        interests: saved.interests ?? draft.interests ?? '',
+        phone: draft.phone,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch (e) {
+      Alert.alert(
+        'Could not save',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -122,6 +184,12 @@ export default function EditProfileScreen() {
     );
   };
 
+  const handleAvatarLongPress = () => {
+    if (!draft.avatarUri) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAvatarPreviewUri(draft.avatarUri);
+  };
+
   const handleChangeAvatar = async () => {
     Haptics.selectionAsync();
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -139,7 +207,26 @@ export default function EditProfileScreen() {
       quality: 0.85,
     });
     if (result.canceled || result.assets.length === 0) return;
-    set('avatarUri', result.assets[0].uri);
+    const asset = result.assets[0];
+    set('avatarUri', asset.uri);
+
+    if (auth.status !== 'signed-in') return;
+
+    setUploadingAvatar(true);
+    try {
+      const saved = await auth.uploadAvatar(asset.uri, asset.mimeType ?? undefined);
+      set('avatarUri', saved.avatarUrl ?? asset.uri);
+      updateUser(authUserToLocalPatch(saved));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert(
+        'Could not upload',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   const handleChangePassword = () => {
@@ -175,7 +262,7 @@ export default function EditProfileScreen() {
       >
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: c.border }]}>
-          <Pressable onPress={handleCancel} hitSlop={10}>
+          <Pressable onPress={handleCancel} hitSlop={10} disabled={saving}>
             <ThemedText style={[styles.headerAction, { color: c.text }]}>
               Cancel
             </ThemedText>
@@ -184,18 +271,22 @@ export default function EditProfileScreen() {
           <Pressable
             onPress={handleSave}
             hitSlop={10}
-            disabled={!dirty}
+            disabled={!dirty || saving}
             style={({ pressed }) => [pressed && { opacity: 0.7 }]}
           >
-            <ThemedText
-              style={[
-                styles.headerAction,
-                styles.saveText,
-                { color: dirty ? c.tint : c.textSubtle },
-              ]}
-            >
-              Save
-            </ThemedText>
+            {saving ? (
+              <ActivityIndicator size="small" color={c.tint} />
+            ) : (
+              <ThemedText
+                style={[
+                  styles.headerAction,
+                  styles.saveText,
+                  { color: dirty ? c.tint : c.textSubtle },
+                ]}
+              >
+                Save
+              </ThemedText>
+            )}
           </Pressable>
         </View>
 
@@ -203,6 +294,7 @@ export default function EditProfileScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!saving}
         >
           {/* Avatar */}
           <View style={styles.avatarBlock}>
@@ -211,6 +303,7 @@ export default function EditProfileScreen() {
               name={draft.name || 'You'}
               size={96}
               onPress={handleChangeAvatar}
+              onLongPress={handleAvatarLongPress}
             />
             <Pressable onPress={handleChangeAvatar} hitSlop={10}>
               <ThemedText style={[styles.changePhoto, { color: c.tint }]}>
@@ -262,8 +355,10 @@ export default function EditProfileScreen() {
               icon="pricetags-outline"
               label="Tags"
               valuePreview={
-                draft.interests && draft.interests.length > 0
-                  ? draft.interests.map((t) => `#${t}`).join(' · ')
+                parseInterests(draft.interests).length > 0
+                  ? parseInterests(draft.interests)
+                      .map((t) => `#${t}`)
+                      .join(' · ')
                   : 'Add a few interests'
               }
               onPress={() => setShowHashtagEditor(true)}
@@ -335,8 +430,8 @@ export default function EditProfileScreen() {
       {/* Hashtag editor */}
       <HashtagEditor
         visible={showHashtagEditor}
-        tags={draft.interests ?? []}
-        onChange={(next) => set('interests', next)}
+        tags={parseInterests(draft.interests)}
+        onChange={(next) => set('interests', joinInterests(next))}
         onClose={() => setShowHashtagEditor(false)}
       />
 
@@ -388,6 +483,19 @@ export default function EditProfileScreen() {
             onChange={handleDobChange}
           />
         )
+      ) : null}
+
+      <BlockingLoader
+        visible={saving || uploadingAvatar}
+        message={uploadingAvatar ? 'Uploading photo…' : 'Saving profile…'}
+      />
+
+      {avatarPreviewUri ? (
+        <ImageViewerModal
+          uri={avatarPreviewUri}
+          align="top"
+          onClose={() => setAvatarPreviewUri(null)}
+        />
       ) : null}
     </SafeAreaView>
   );

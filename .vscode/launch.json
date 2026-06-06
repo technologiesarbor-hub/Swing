@@ -1,0 +1,67 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+
+        // ─── Serving API ──────────────────────────────────────────────────────────
+        {
+            "name": "[Serving] local dev",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/backend/serving",
+            "cwd": "${workspaceFolder}/backend/serving",
+            "env": {
+                "HOSTNAME": "local-debugging",
+                "PROFILE": "dev",
+                "SETUP": "local",
+                "VERSION": "local_dev"
+            }
+        },
+        {
+            "name": "[Serving] local staging",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/backend/serving",
+            "cwd": "${workspaceFolder}/backend/serving",
+            "env": {
+                "HOSTNAME": "local-debugging",
+                "PROFILE": "staging",
+                "SETUP": "local",
+                "VERSION": "local_dev"
+            }
+        },
+
+        // ─── Serving — Makefile (backend/serving/build) ─────────────────────────
+        {
+            "name": "make: serving run",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "make -C build run",
+            "cwd": "${workspaceFolder}/backend/serving"
+        },
+        {
+            "name": "make: serving test",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "make -C build test",
+            "cwd": "${workspaceFolder}/backend/serving"
+        },
+
+        // ─── Client (Expo) ────────────────────────────────────────────────────────
+        {
+            "name": "Expo: start (client)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "pnpm start --clear",
+            "cwd": "${workspaceFolder}/client"
+        },
+        {
+            "name": "Expo: android (client)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "pnpm android",
+            "cwd": "${workspaceFolder}/client"
+        }
+    ]
+}

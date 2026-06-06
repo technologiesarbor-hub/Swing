@@ -17,10 +17,6 @@
  *     iterate on without churning the auth surface.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const STORAGE_KEY = 'swing/v1/usernames/taken';
-
 /** Reserved short list so casual griefers can't impersonate the app
  *  itself. Augmented server-side in Phase B. */
 const RESERVED = new Set([
@@ -102,56 +98,25 @@ export function validateUsername(input: string): string | null {
   return null;
 }
 
-// ── AsyncStorage-backed "taken" registry ─────────────────────────────────
-
-async function readTaken(): Promise<string[]> {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeTaken(list: string[]): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
-
 /**
- * Check if a username is free. Returns `false` for locally-invalid
- * inputs as well (taken && invalid both block claim) so screens can
- * use one boolean. For *which* error to show, call `validateUsername`
- * separately first.
+ * Check if a username is free via the API.
+ * Returns `false` for locally-invalid inputs as well.
  */
 export async function isUsernameAvailable(input: string): Promise<boolean> {
   const v = input.trim().toLowerCase();
   if (validateUsername(v) !== null) return false;
-  const taken = await readTaken();
-  return !taken.includes(v);
-}
-
-/**
- * Persist a successful claim. Idempotent. In Phase B this becomes a
- * transactional Firestore write to `/usernames/{username}` doc.
- */
-export async function markUsernameTaken(input: string): Promise<void> {
-  const v = input.trim().toLowerCase();
-  const taken = await readTaken();
-  if (!taken.includes(v)) {
-    taken.push(v);
-    await writeTaken(taken);
+  const { checkUsernameAvailable } = await import('@/lib/api/auth-api');
+  try {
+    return await checkUsernameAvailable(v);
+  } catch {
+    // Offline fallback for dev — treat as unavailable to avoid false positives.
+    return false;
   }
 }
 
-/**
- * Release a previously-claimed username. Currently only used by tests
- * and (eventually) the "delete account" flow.
- */
-export async function releaseUsername(input: string): Promise<void> {
-  const v = input.trim().toLowerCase();
-  const taken = await readTaken();
-  const next = taken.filter((u) => u !== v);
-  if (next.length !== taken.length) await writeTaken(next);
+/** Server claims username on PATCH /v1/me — kept for profile-setup call site. */
+export async function markUsernameTaken(_input: string): Promise<void> {
+  return;
 }
 
 /**

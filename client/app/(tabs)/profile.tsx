@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -28,20 +28,32 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  useWindowDimensions,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
+import { BlockingLoader } from '@/components/blocking-loader';
 import { HashtagEditor } from '@/components/hashtag-editor';
+import { ImageViewerModal } from '@/components/image-viewer-modal';
+import { SwipeSafePressable } from '@/components/swipe-safe-pressable';
 import { TabNavHeader } from '@/components/tab-nav-header';
-import { TabSwipeRegion } from '@/components/tab-swipe-region';
+import {
+  TabSwipeRegion,
+  type SwipeDirection,
+} from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTabFocusFade } from '@/hooks/use-tab-focus-fade';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
 import { useChats } from '@/lib/chats-context';
+import { joinInterests, parseInterests } from '@/lib/interests';
+import { authUserToLocalPatch } from '@/lib/profile-from-auth';
 import { useSentPlanes } from '@/lib/sent-planes-context';
 import { useUserSettings } from '@/lib/user-settings-context';
 import type { Chat } from '@/types/chat';
@@ -54,7 +66,12 @@ export default function ProfileScreen() {
   const c = Colors[scheme];
   const router = useRouter();
   const fadeStyle = useTabFocusFade();
+  const auth = useAuth();
   const { user, updateUser } = useUserSettings();
+  const interestTags = useMemo(
+    () => parseInterests(user.interests),
+    [user.interests],
+  );
   const { chats } = useChats();
   const { sentPlanes, total: planesSentTotal } = useSentPlanes();
 
@@ -64,12 +81,82 @@ export default function ProfileScreen() {
     [chats],
   );
 
+  const { width: screenWidth } = useWindowDimensions();
+  const segmentPagerRef = useRef<FlatList<Segment>>(null);
   const [segment, setSegment] = useState<Segment>('planes');
+
+  const goToSegment = useCallback((next: Segment) => {
+    setSegment(next);
+    const index = next === 'planes' ? 0 : 1;
+    segmentPagerRef.current?.scrollToIndex({ index, animated: true });
+  }, []);
+
+  const handleConsumeSwipe = useCallback(
+    (direction: SwipeDirection) => {
+      // Finger left  → reveal Friends (segment to the right).
+      if (direction === 'left' && segment === 'planes') {
+        goToSegment('friends');
+        return true;
+      }
+      // Finger right → back to Planes; only then fall through to Explore tab.
+      if (direction === 'right' && segment === 'friends') {
+        goToSegment('planes');
+        return true;
+      }
+      return false;
+    },
+    [goToSegment, segment],
+  );
+
+  const handleSegmentPagerEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+      setSegment(index === 0 ? 'planes' : 'friends');
+    },
+    [screenWidth],
+  );
   // Tag overflow drawer — opens when the user taps the "+N" pill on the
   // profile header tag line. Lets them browse the full tag list and
   // jump into the editor without leaving the screen.
   const [showAllTags, setShowAllTags] = useState(false);
   const [showHashtagEditor, setShowHashtagEditor] = useState(false);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const openHashtagEditor = useCallback(() => {
+    setTagDraft(interestTags);
+    setShowHashtagEditor(true);
+  }, [interestTags]);
+
+  const handleHashtagClose = useCallback(async () => {
+    setShowHashtagEditor(false);
+    const interests = joinInterests(tagDraft);
+    const current = joinInterests(interestTags);
+    if (interests === current) return;
+
+    if (auth.status !== 'signed-in') {
+      updateUser({ interests });
+      return;
+    }
+
+    setSavingTags(true);
+    try {
+      const saved = await auth.saveProfile({ interests });
+      updateUser({
+        ...authUserToLocalPatch(saved),
+        interests: saved.interests ?? interests,
+      });
+    } catch (e) {
+      Alert.alert(
+        'Could not save',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+    } finally {
+      setSavingTags(false);
+    }
+  }, [tagDraft, interestTags, auth, updateUser]);
 
   const pickAvatarFromGallery = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -87,7 +174,52 @@ export default function ProfileScreen() {
       quality: 0.85,
     });
     if (result.canceled || result.assets.length === 0) return;
-    updateUser({ avatarUri: result.assets[0].uri });
+    const asset = result.assets[0];
+    updateUser({ avatarUri: asset.uri });
+
+    if (auth.status !== 'signed-in') return;
+
+    setUploadingAvatar(true);
+    try {
+      const saved = await auth.uploadAvatar(asset.uri, asset.mimeType ?? undefined);
+      updateUser(authUserToLocalPatch(saved));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert(
+        'Could not upload',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (auth.status !== 'signed-in') {
+      updateUser({ avatarUri: undefined });
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const saved = await auth.saveProfile({ avatarUrl: '' });
+      updateUser(authUserToLocalPatch(saved));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert(
+        'Could not remove',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarLongPress = () => {
+    if (!user.avatarUri) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAvatarPreviewUri(user.avatarUri);
   };
 
   const handleChangeAvatar = () => {
@@ -98,7 +230,7 @@ export default function ProfileScreen() {
         {
           text: 'Remove photo',
           style: 'destructive',
-          onPress: () => updateUser({ avatarUri: undefined }),
+          onPress: () => void removeAvatar(),
         },
         { text: 'Cancel', style: 'cancel' },
       ]);
@@ -152,7 +284,11 @@ export default function ProfileScreen() {
         </Animated.View>
       </TabSwipeRegion>
 
-      <TabSwipeRegion currentRoute="/profile" style={styles.fill}>
+      <TabSwipeRegion
+        currentRoute="/profile"
+        style={styles.fill}
+        consumeSwipe={handleConsumeSwipe}
+      >
         <Animated.View style={[styles.fill, fadeStyle]}>
           <ScrollView
             contentContainerStyle={styles.scroll}
@@ -169,6 +305,7 @@ export default function ProfileScreen() {
                   size={88}
                   hasStatus={(user.statusItems?.length ?? 0) > 0}
                   onPress={handleChangeAvatar}
+                  onLongPress={handleAvatarLongPress}
                 />
                 {/* Edit pencil — sits in the bottom-right of the avatar so
                     users immediately know it's tappable. */}
@@ -196,7 +333,7 @@ export default function ProfileScreen() {
                 <Stat
                   label="Friends"
                   value={friends.length}
-                  onPress={() => setSegment('friends')}
+                  onPress={() => goToSegment('friends')}
                 />
               </View>
             </View>
@@ -212,9 +349,9 @@ export default function ProfileScreen() {
               {user.bio ? (
                 <ThemedText style={styles.bio}>{user.bio}</ThemedText>
               ) : null}
-              {user.interests && user.interests.length > 0 ? (
+              {interestTags.length > 0 ? (
                 <TagPillsLine
-                  tags={user.interests}
+                  tags={interestTags}
                   onShowAll={() => setShowAllTags(true)}
                 />
               ) : null}
@@ -243,27 +380,48 @@ export default function ProfileScreen() {
                 icon="paper-plane-outline"
                 label="Planes"
                 active={segment === 'planes'}
-                onPress={() => setSegment('planes')}
+                onPress={() => goToSegment('planes')}
               />
               <SegmentTab
                 icon="people-outline"
                 label="Friends"
                 active={segment === 'friends'}
-                onPress={() => setSegment('friends')}
+                onPress={() => goToSegment('friends')}
               />
             </View>
 
-            {segment === 'planes' ? (
-              <PlanesSegment
-                planes={sentPlanes}
-                onSeeAll={() => router.push('/planes')}
-              />
-            ) : (
-              <FriendsSegment
-                friends={friends}
-                onOpenChat={(id) => router.push(`/chat/${id}`)}
-              />
-            )}
+            <FlatList
+              ref={segmentPagerRef}
+              data={['planes', 'friends'] as const}
+              keyExtractor={(item) => item}
+              horizontal
+              pagingEnabled
+              scrollEnabled={false}
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={handleSegmentPagerEnd}
+              getItemLayout={(_, index) => ({
+                length: screenWidth,
+                offset: screenWidth * index,
+                index,
+              })}
+              style={[styles.segmentPager, { marginHorizontal: -Spacing.xl }]}
+              renderItem={({ item }) => (
+                <View style={{ width: screenWidth, paddingHorizontal: Spacing.xl }}>
+                  {item === 'planes' ? (
+                    <PlanesSegment
+                      planes={sentPlanes}
+                      onSeeAll={() => router.push('/planes')}
+                    />
+                  ) : (
+                    <FriendsSegment
+                      friends={friends}
+                      onOpenChat={(id) => router.push(`/chat/${id}`)}
+                    />
+                  )}
+                </View>
+              )}
+            />
 
             <View style={{ height: Spacing.xl }} />
           </ScrollView>
@@ -273,21 +431,34 @@ export default function ProfileScreen() {
       {/* "+N" overflow sheet — all tags + pencil to enter editor */}
       <AllTagsSheet
         visible={showAllTags}
-        tags={user.interests ?? []}
+        tags={interestTags}
         onClose={() => setShowAllTags(false)}
         onEdit={() => {
           setShowAllTags(false);
-          setShowHashtagEditor(true);
+          openHashtagEditor();
         }}
       />
 
       {/* The actual editor sheet */}
       <HashtagEditor
         visible={showHashtagEditor}
-        tags={user.interests ?? []}
-        onClose={() => setShowHashtagEditor(false)}
-        onChange={(next) => updateUser({ interests: next })}
+        tags={tagDraft}
+        onClose={() => void handleHashtagClose()}
+        onChange={setTagDraft}
       />
+
+      <BlockingLoader
+        visible={savingTags || uploadingAvatar}
+        message={uploadingAvatar ? 'Uploading photo…' : 'Saving tags…'}
+      />
+
+      {avatarPreviewUri ? (
+        <ImageViewerModal
+          uri={avatarPreviewUri}
+          align="top"
+          onClose={() => setAvatarPreviewUri(null)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -711,16 +882,15 @@ function PlanesBucket({
           ]}
         >
           {items.map((plane, i) => (
-            <Pressable
+            <SwipeSafePressable
               key={plane.id}
               onPress={() => onOpen(plane)}
-              style={({ pressed }) => [
+              style={[
                 styles.bucketRow,
                 i < items.length - 1 && {
                   borderBottomColor: c.border,
                   borderBottomWidth: StyleSheet.hairlineWidth,
                 },
-                pressed && { backgroundColor: c.surfaceAlt },
               ]}
             >
               <Avatar
@@ -744,7 +914,7 @@ function PlanesBucket({
                 size={14}
                 color={c.textSubtle}
               />
-            </Pressable>
+            </SwipeSafePressable>
           ))}
         </View>
       )}
@@ -790,17 +960,14 @@ function FriendsSegment({
         <View style={[styles.friendSeparator, { backgroundColor: c.border }]} />
       )}
       renderItem={({ item, index }) => (
-        <Pressable
+        <SwipeSafePressable
           onPress={() => onOpenChat(item.id)}
-          style={({ pressed }) => [
+          style={[
             styles.friendRow,
-            // Top border on the very first row so the segregation reads
-            // consistently with the separators below.
             index === 0 && {
               borderTopColor: c.border,
               borderTopWidth: StyleSheet.hairlineWidth,
             },
-            pressed && { backgroundColor: c.surfaceAlt },
           ]}
         >
           <Avatar
@@ -826,7 +993,7 @@ function FriendsSegment({
             size={18}
             color={c.tint}
           />
-        </Pressable>
+        </SwipeSafePressable>
       )}
     />
   );
@@ -939,6 +1106,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: Spacing.xl,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  segmentPager: {
+    marginTop: Spacing.md,
   },
   segmentTab: {
     flex: 1,

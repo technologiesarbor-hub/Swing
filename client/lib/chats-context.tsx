@@ -40,6 +40,7 @@ export type SendPayload = {
   imageUri?: string;
   audioUri?: string;
   audioDurationMs?: number;
+  mediaKey?: string;
   /** If set, the new message will be tagged as a reply to this message. */
   replyToMessageId?: string;
   /** Insta-style "view once" — media destroys itself after the first
@@ -184,6 +185,7 @@ export function ChatsProvider({ children }: { children: ReactNode }) {
         imageUri: p.imageUri,
         audioUri: p.audioUri,
         audioDurationMs: p.audioDurationMs,
+        mediaKey: p.mediaKey,
         replyToMessageId: p.replyToMessageId,
         // view-once only meaningful for media kinds
         viewOnce: p.viewOnce && kind !== 'text' ? true : undefined,

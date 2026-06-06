@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { ChatActionMenu } from '@/components/chat-action-menu';
+import { SwipeSafePressable } from '@/components/swipe-safe-pressable';
 import { TabNavHeader } from '@/components/tab-nav-header';
 import { TabSwipeRegion } from '@/components/tab-swipe-region';
 import { ThemedText } from '@/components/themed-text';
@@ -353,15 +354,11 @@ function ChatRow({
   // anywhere on the row.
   return (
     <View style={[styles.row, isBlocked && { opacity: 0.55 }]}>
-      <Pressable
+      <SwipeSafePressable
         onPress={onAvatarPress}
         onLongPress={onLongPress}
         delayLongPress={320}
-        hitSlop={6}
-        style={({ pressed }) => [
-          styles.avatarHit,
-          pressed && { opacity: 0.75 },
-        ]}
+        style={styles.avatarHit}
       >
         <Avatar
           uri={chat.partner.avatarUrl}
@@ -370,16 +367,13 @@ function ChatRow({
           hasStatus={!isBlocked && chat.partner.hasStatus}
           online={!isBlocked && chat.partner.onlineNow}
         />
-      </Pressable>
+      </SwipeSafePressable>
 
-      <Pressable
+      <SwipeSafePressable
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={320}
-        style={({ pressed }) => [
-          styles.rowContent,
-          { backgroundColor: pressed ? c.surfaceAlt : 'transparent' },
-        ]}
+        style={styles.rowContent}
       >
         <View style={styles.rowText}>
           <View style={styles.rowTop}>
@@ -425,7 +419,7 @@ function ChatRow({
         </View>
 
         <Ionicons name="chevron-forward" size={18} color={c.textSubtle} />
-      </Pressable>
+      </SwipeSafePressable>
     </View>
   );
 }

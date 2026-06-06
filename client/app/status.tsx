@@ -26,7 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -42,9 +42,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BlockingLoader } from '@/components/blocking-loader';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { deleteStatusItem, listMyStatus } from '@/lib/api/media-api';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
+import { readTokens } from '@/lib/api/token-storage';
+import { apiStatusToLocal } from '@/lib/status-from-api';
+import { uploadStatusDraft } from '@/lib/upload-media';
 import {
   type StatusDraft,
   type StatusItem,
@@ -67,7 +73,25 @@ export default function StatusScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
+  const auth = useAuth();
   const { user, updateUser } = useUserSettings();
+  const [uploading, setUploading] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (auth.status !== 'signed-in') return;
+      (async () => {
+        try {
+          const { accessToken } = await readTokens();
+          if (!accessToken) return;
+          const items = await listMyStatus(accessToken);
+          updateUser({ statusItems: items.map(apiStatusToLocal) });
+        } catch {
+          /* keep local cache */
+        }
+      })();
+    }, [auth.status, updateUser]),
+  );
 
   // Drafts live on the user object (context) — that way picking an
   // image, navigating to another tab, and coming back still shows the
@@ -163,13 +187,27 @@ export default function StatusScreen() {
 
   const removeCurrent = () => {
     if (!current) return;
-    const performRemove = () => {
+    const performRemove = async () => {
       if (current.draft) {
         // Compute the draft's position inside the drafts array.
         const draftOffset = activeIndex - posted.length;
         setDrafts((arr) => arr.filter((_, i) => i !== draftOffset));
       } else {
-        // It's already posted — drop from user storage.
+        const target = posted[activeIndex];
+        if (target?.id && auth.status === 'signed-in') {
+          try {
+            const { accessToken } = await readTokens();
+            if (accessToken) {
+              await deleteStatusItem(accessToken, target.id);
+            }
+          } catch (e) {
+            Alert.alert(
+              'Could not remove',
+              humanizeAuthError(e, 'Something went wrong. Try again.'),
+            );
+            return;
+          }
+        }
         updateUser({
           statusItems: posted.filter((_, i) => i !== activeIndex),
         });
@@ -201,24 +239,49 @@ export default function StatusScreen() {
     );
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!hasDrafts) return;
-    const now = new Date().toISOString();
-    const newItems: StatusItem[] = drafts.map((d) => ({
-      uri: d.uri,
-      kind: d.kind,
-      postedAt: now,
-    }));
-    // Single updateUser call so the two writes commit atomically —
-    // avoids a brief render where `statusItems` is new but
-    // `statusDrafts` is also still around (we'd double-render the
-    // freshly-posted slides).
-    updateUser({
-      statusItems: [...posted, ...newItems],
-      statusDrafts: [],
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+
+    if (auth.status !== 'signed-in') {
+      const now = new Date().toISOString();
+      const newItems: StatusItem[] = drafts.map((d) => ({
+        uri: d.uri,
+        kind: d.kind,
+        postedAt: now,
+      }));
+      updateUser({
+        statusItems: [...posted, ...newItems],
+        statusDrafts: [],
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const { accessToken } = await readTokens();
+      if (!accessToken) throw new Error('no token');
+      const uploaded: StatusItem[] = [];
+      for (const d of drafts) {
+        const item = await uploadStatusDraft(accessToken, d.uri, d.kind);
+        uploaded.push(apiStatusToLocal(item));
+      }
+      updateUser({
+        statusItems: [...posted, ...uploaded],
+        statusDrafts: [],
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch (e) {
+      Alert.alert(
+        'Could not upload',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const onMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -356,8 +419,8 @@ export default function StatusScreen() {
           <View style={{ flex: 1 }} />
 
           <Pressable
-            onPress={handleUpload}
-            disabled={!hasDrafts}
+            onPress={() => void handleUpload()}
+            disabled={!hasDrafts || uploading}
             style={({ pressed }) => [
               styles.uploadBtn,
               {
@@ -375,6 +438,7 @@ export default function StatusScreen() {
           </Pressable>
         </View>
       ) : null}
+      <BlockingLoader visible={uploading} message="Uploading status…" />
     </SafeAreaView>
   );
 }

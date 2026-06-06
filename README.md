@@ -8,8 +8,9 @@ A social messaging app where users send "paper plane" messages to random people 
 
 ```
 swing/
-├── client/   # React Native (Expo) app — iOS & Android
-└── server/   # Backend (Firebase Cloud Functions) — coming soon
+├── client/              # React Native (Expo) app — iOS & Android
+└── backend/
+    └── serving/         # Main Go REST API (Neon Postgres) — may rename to eros
 ```
 
 Each folder is self-contained with its own `package.json` and dependencies. They are deployed independently.
@@ -29,13 +30,30 @@ pnpm install
 pnpm start
 ```
 
-Scan the QR code with the Camera app on iPhone, or with Expo Go on Android.
+Terminal should say **“Using Expo Go”** and the URL should look like `exp://192.168.x.x:8081` — **not** `exp+swing://expo-development-client`.
 
-Laptop and phone must be on the **same WiFi**. If they're on different networks, run `pnpm start --tunnel` instead.
+Scan with the **Camera** app on iPhone (tap “Open in Expo Go”), or with **Expo Go → Scan QR** on Android.
 
-## Running the server
+Laptop and phone must be on the **same WiFi** (or phone on laptop hotspot). If the app stays on “Opening project…” / “Loading…”, your IP may have changed — restart `pnpm start` and scan the **new** QR.
 
-Not implemented yet. Will be added during the auth & backend phase.
+Tunnel fallback (if ngrok works on your network):
+
+```bash
+cd client
+pnpm start:tunnel
+```
+
+## Running the backend (serving API)
+
+```bash
+cd backend/serving
+cp config/setup/local/dev.local.yaml.example config/setup/local/dev.local.yaml
+# Fill database.url (Neon) and auth.jwt_secret
+go mod tidy
+PROFILE=dev SETUP=local go run .
+```
+
+See `backend/serving/README.md` for layout and routes.
 
 ## Tech stack
 
@@ -43,11 +61,9 @@ Not implemented yet. Will be added during the auth & backend phase.
 
 - Expo SDK 54 (React Native + TypeScript)
 - `expo-router` for navigation
-- Firebase JS SDK for auth, Firestore, push notifications
 
-**Server**
+**Backend (`backend/serving`)**
 
-- Firebase Authentication (phone OTP)
-- Firestore (users, planes, chats)
-- Cloud Functions (Node.js) for matching & moderation
-- Firebase Cloud Messaging (push notifications)
+- Go + chi router
+- Neon Postgres
+- JWT access + refresh tokens (email/password auth)

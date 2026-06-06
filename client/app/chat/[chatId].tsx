@@ -85,11 +85,19 @@ import {
   ActionSheet,
   type ActionSheetItem,
 } from '@/components/action-sheet';
+import { BlockingLoader } from '@/components/blocking-loader';
 import { ChatActionMenu } from '@/components/chat-action-menu';
+import { ImageViewerModal } from '@/components/image-viewer-modal';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { readTokens } from '@/lib/api/token-storage';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
 import { useChats } from '@/lib/chats-context';
+import {
+  isLocalMediaUri,
+  uploadChatMedia,
+} from '@/lib/upload-media';
 import type { ChatMessage } from '@/types/chat';
 
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '🙏'];
@@ -111,6 +119,8 @@ export default function ChatScreen() {
   const c = Colors[scheme];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const auth = useAuth();
+  const [sendingMedia, setSendingMedia] = useState(false);
   const {
     getChat,
     sendMessage,
@@ -336,29 +346,84 @@ export default function ChatScreen() {
    * Commits the pending media (image or voice) to the chat, honouring the
    * user's "view once" choice from the action sheet.
    */
-  const commitPendingMedia = (viewOnce: boolean) => {
-    if (!pendingMedia) return;
+  const commitPendingMedia = async (viewOnce: boolean) => {
+    if (!pendingMedia || !chat) return;
     Haptics.selectionAsync();
-    if (pendingMedia.kind === 'image') {
-      sendMessage(chat.id, {
-        kind: 'image',
-        imageUri: pendingMedia.imageUri,
-        text: '',
-        replyToMessageId: replyTarget?.id,
-        viewOnce,
-      });
-    } else {
-      sendMessage(chat.id, {
-        kind: 'audio',
-        audioUri: pendingMedia.audioUri,
-        audioDurationMs: pendingMedia.audioDurationMs,
-        text: '',
-        replyToMessageId: replyTarget?.id,
-        viewOnce,
-      });
+
+    const base = {
+      text: '',
+      replyToMessageId: replyTarget?.id,
+      viewOnce,
+    };
+
+    const sendLocal = () => {
+      if (pendingMedia.kind === 'image') {
+        sendMessage(chat.id, {
+          ...base,
+          kind: 'image',
+          imageUri: pendingMedia.imageUri,
+        });
+      } else {
+        sendMessage(chat.id, {
+          ...base,
+          kind: 'audio',
+          audioUri: pendingMedia.audioUri,
+          audioDurationMs: pendingMedia.audioDurationMs,
+        });
+      }
+      setPendingMedia(null);
+      setReplyTarget(null);
+    };
+
+    const uri =
+      pendingMedia.kind === 'image'
+        ? pendingMedia.imageUri
+        : pendingMedia.audioUri;
+
+    if (auth.status !== 'signed-in' || !isLocalMediaUri(uri)) {
+      sendLocal();
+      return;
     }
-    setPendingMedia(null);
-    setReplyTarget(null);
+
+    setSendingMedia(true);
+    try {
+      const { accessToken } = await readTokens();
+      if (!accessToken) {
+        sendLocal();
+        return;
+      }
+      const uploaded = await uploadChatMedia(
+        accessToken,
+        chat.id,
+        uri,
+        pendingMedia.kind,
+      );
+      if (pendingMedia.kind === 'image') {
+        sendMessage(chat.id, {
+          ...base,
+          kind: 'image',
+          imageUri: uploaded.viewUrl,
+          mediaKey: uploaded.mediaKey,
+        });
+      } else {
+        sendMessage(chat.id, {
+          ...base,
+          kind: 'audio',
+          audioUri: uploaded.viewUrl,
+          audioDurationMs: pendingMedia.audioDurationMs,
+          mediaKey: uploaded.mediaKey,
+        });
+      }
+      setPendingMedia(null);
+      setReplyTarget(null);
+    } catch (e) {
+      Alert.alert(
+        'Could not send',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+    } finally {
+      setSendingMedia(false);
+    }
   };
 
   const cancelRecording = async () => {
@@ -688,7 +753,7 @@ export default function ChatScreen() {
                   label: 'Send',
                   primary: true,
                   subtitle: 'Stays in chat history',
-                  onPress: () => commitPendingMedia(false),
+                  onPress: () => void commitPendingMedia(false),
                 } as ActionSheetItem,
                 {
                   id: 'once',
@@ -702,7 +767,7 @@ export default function ChatScreen() {
                       : 'View once',
                   subtitle:
                     'Destroys itself after being opened, leaving only a history line',
-                  onPress: () => commitPendingMedia(true),
+                  onPress: () => void commitPendingMedia(true),
                 } as ActionSheetItem,
               ])
             : []
@@ -716,6 +781,8 @@ export default function ChatScreen() {
         onClose={() => setShowChatActions(false)}
         popOnDelete
       />
+
+      <BlockingLoader visible={sendingMedia} message="Sending…" />
     </SafeAreaView>
   );
 }
@@ -1461,34 +1528,6 @@ function LongPressActionMenu({
 }
 
 // ===========================================================================
-// ImageViewerModal — full-screen image preview, tap anywhere to close.
-// ===========================================================================
-
-function ImageViewerModal({
-  uri,
-  onClose,
-}: {
-  uri: string;
-  onClose: () => void;
-}) {
-  const { width, height } = useWindowDimensions();
-  return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.imageViewerBackdrop} onPress={onClose}>
-        <Image
-          source={{ uri }}
-          style={{ width, height: height * 0.85 }}
-          contentFit="contain"
-        />
-        <View style={styles.imageViewerClose}>
-          <Ionicons name="close" size={28} color="#fff" />
-        </View>
-      </Pressable>
-    </Modal>
-  );
-}
-
-// ===========================================================================
 // ReplyPreviewBar — above-composer "replying to X" pill with cancel.
 // ===========================================================================
 
@@ -1923,24 +1962,6 @@ const styles = StyleSheet.create({
   },
   menuItemLabel: { fontSize: 16, fontWeight: '500' },
 
-  // ── Image viewer (Modal) ────────────────────────────────────────────
-  imageViewerBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageViewerClose: {
-    position: 'absolute',
-    top: 60,
-    right: 24,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
   // ── Reply preview bar (above composer) ──────────────────────────────
   replyBar: {

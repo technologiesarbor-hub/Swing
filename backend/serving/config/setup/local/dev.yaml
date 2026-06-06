@@ -1,0 +1,21 @@
+setup: local
+profile: dev
+app: serving
+
+server:
+  port: "8080"
+  read_timeout: 15s
+  write_timeout: 15s
+
+database:
+  url: ""
+
+auth:
+  jwt_secret: ""
+  google_client_id: ""
+  access_token_ttl: 15m
+  refresh_token_ttl: 720h
+
+cors:
+  allowed_origins:
+    - "*"

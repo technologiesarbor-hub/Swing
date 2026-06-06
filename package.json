@@ -1,0 +1,11 @@
+{
+  "name": "swing",
+  "private": true,
+  "scripts": {
+    "start": "pnpm --dir client start",
+    "android": "pnpm --dir client android",
+    "ios": "pnpm --dir client ios",
+    "web": "pnpm --dir client web",
+    "lint": "pnpm --dir client lint"
+  }
+}

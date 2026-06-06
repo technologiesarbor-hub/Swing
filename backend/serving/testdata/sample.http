@@ -1,0 +1,93 @@
+### Health
+GET http://localhost:8080/health
+
+### Register
+POST http://localhost:8080/v1/auth/register
+Content-Type: application/json
+
+{
+  "email": "you@example.com",
+  "password": "secret12"
+}
+
+### Login
+POST http://localhost:8080/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "you@example.com",
+  "password": "secret12"
+}
+
+### Google (ID token from client OAuth)
+POST http://localhost:8080/v1/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "GOOGLE_ID_TOKEN_HERE"
+}
+
+### Username available?
+GET http://localhost:8080/v1/usernames/clever_panda_42/available
+
+### Me (replace TOKEN)
+GET http://localhost:8080/v1/me
+Authorization: Bearer TOKEN
+
+### Patch profile
+POST http://localhost:8080/v1/me/avatar/upload-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "contentType": "image/jpeg"
+}
+
+###
+
+POST http://localhost:8080/v1/me/status/upload-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "contentType": "image/jpeg"
+}
+
+###
+
+POST http://localhost:8080/v1/media/chat/upload-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "chatId": "chat_s1",
+  "contentType": "image/jpeg"
+}
+
+###
+
+POST http://localhost:8080/v1/media/read-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "mediaKey": "chat/ACCOUNT-UUID/chat_s1/FILE-UUID.jpg"
+}
+
+###
+
+PATCH http://localhost:8080/v1/me
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "name": "Rahul",
+  "username": "clever_panda_42",
+  "dob": "2000-05-15",
+  "gender": "M",
+  "profileComplete": true
+}
+
+### Delete account
+DELETE http://localhost:8080/v1/me
+Authorization: Bearer TOKEN

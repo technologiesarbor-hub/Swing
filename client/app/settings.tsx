@@ -13,6 +13,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -23,10 +24,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BlockingLoader } from '@/components/blocking-loader';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useAuth } from '@/lib/auth-context';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
 import { useUserSettings } from '@/lib/user-settings-context';
 
 export default function SettingsScreen() {
@@ -43,7 +45,10 @@ export default function SettingsScreen() {
     user,
     deleteAccount,
   } = useUserSettings();
-  const { signOut } = useAuth();
+  const { signOut, deleteAccountRemote } = useAuth();
+  const [deleting, setDeleting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const busy = deleting || signingOut;
 
   const isDarkMode = themePref === 'dark';
 
@@ -65,12 +70,25 @@ export default function SettingsScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            deleteAccount();
-            await signOut(); // bounces user out to /(auth)/splash via AuthGuard
-            Alert.alert(
-              'Account deleted',
-              'Your data has been wiped from this device.',
-            );
+            setDeleting(true);
+            try {
+              await deleteAccountRemote();
+              deleteAccount();
+              Alert.alert(
+                'Account deleted',
+                'Your account and data have been permanently removed.',
+              );
+            } catch (e) {
+              Alert.alert(
+                'Could not delete',
+                humanizeAuthError(
+                  e,
+                  'Something went wrong. Try again when you are back online.',
+                ),
+              );
+            } finally {
+              setDeleting(false);
+            }
           },
         },
       ],
@@ -84,7 +102,7 @@ export default function SettingsScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => router.back()} hitSlop={12} disabled={busy}>
           <Ionicons name="arrow-back" size={24} color={c.text} />
         </Pressable>
         <ThemedText style={styles.title}>Settings</ThemedText>
@@ -94,6 +112,7 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!busy}
       >
         {/* Account card */}
         <View
@@ -202,9 +221,13 @@ export default function SettingsScreen() {
                     text: 'Log out',
                     style: 'destructive',
                     onPress: async () => {
-                      await signOut();
-                      // AuthGuard in root layout will redirect to
-                      // /(auth)/splash automatically.
+                      setSigningOut(true);
+                      try {
+                        await signOut();
+                        // AuthGuard redirects to /(auth)/splash.
+                      } finally {
+                        setSigningOut(false);
+                      }
                     },
                   },
                 ],
@@ -225,6 +248,11 @@ export default function SettingsScreen() {
           </ThemedText>
         </View>
       </ScrollView>
+
+      <BlockingLoader
+        visible={busy}
+        message={deleting ? 'Deleting account…' : 'Signing out…'}
+      />
     </SafeAreaView>
   );
 }

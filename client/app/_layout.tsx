@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useDismissKeyboardOnBackground } from '@/hooks/use-dismiss-keyboard-on-background';
+import { AuthProfileSync } from '@/components/auth-profile-sync';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ChatsProvider } from '@/lib/chats-context';
 import { NotificationsProvider } from '@/lib/notifications-context';
@@ -33,6 +34,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <UserSettingsProvider>
+          <AuthProfileSync />
           <ThemedRoot />
         </UserSettingsProvider>
       </AuthProvider>

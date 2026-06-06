@@ -35,6 +35,14 @@
 **/.env.*
 !**/.env.example
 
+# Go serving — local secret overlays (JSON + legacy YAML)
+**/*.local.json
+!**/*.local.json.example
+**/*.local.yaml
+
+# Go build artifacts
+**/build/serving
+
 # Firebase
 **/firebase-debug.log
 **/firebase-debug.*.log
@@ -55,8 +63,9 @@
 **/.DS_Store
 Thumbs.db
 
-# IDE
+# IDE (goserving-style: share run configs only)
 .idea/
+!.idea/runConfigurations
 *.swp
 *.swo
 

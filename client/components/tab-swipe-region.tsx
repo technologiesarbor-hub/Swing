@@ -34,8 +34,10 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 
 // Tab order — must match (tabs)/_layout.tsx left-to-right.
-export const TAB_ROUTES = ['/', '/chats', '/send', '/travel', '/profile'] as const;
+export const TAB_ROUTES = ['/', '/chats', '/send', '/explore', '/profile'] as const;
 export type TabRoute = (typeof TAB_ROUTES)[number];
+
+export type SwipeDirection = 'left' | 'right';
 
 type Props = {
   currentRoute: TabRoute;
@@ -46,6 +48,11 @@ type Props = {
    * horizontal tab swipes and vertical list scroll work together.
    */
   withNativeScroll?: boolean;
+  /**
+   * Handle an in-screen horizontal swipe before switching tabs.
+   * Return `true` when the swipe was consumed (e.g. profile segment).
+   */
+  consumeSwipe?: (direction: SwipeDirection) => boolean;
 };
 
 export function TabSwipeRegion({
@@ -53,6 +60,7 @@ export function TabSwipeRegion({
   children,
   style,
   withNativeScroll,
+  consumeSwipe,
 }: Props) {
   const router = useRouter();
   const currentIndex = TAB_ROUTES.indexOf(currentRoute);
@@ -63,6 +71,11 @@ export function TabSwipeRegion({
       if (target < 0 || target >= TAB_ROUTES.length) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       router.navigate(TAB_ROUTES[target] as any);
+    };
+
+    const handlePanEnd = (direction: SwipeDirection) => {
+      if (consumeSwipe?.(direction)) return;
+      navigateTo(direction === 'left' ? 1 : -1);
     };
 
     const pan = Gesture.Pan()
@@ -76,18 +89,18 @@ export function TabSwipeRegion({
           e.translationX < -SWIPE_DIST ||
           (e.velocityX < -FLICK_VEL && e.translationX < -10)
         ) {
-          runOnJS(navigateTo)(1);
+          runOnJS(handlePanEnd)('left');
         } else if (
           e.translationX > SWIPE_DIST ||
           (e.velocityX > FLICK_VEL && e.translationX > 10)
         ) {
-          runOnJS(navigateTo)(-1);
+          runOnJS(handlePanEnd)('right');
         }
       });
 
     if (!withNativeScroll) return pan;
     return Gesture.Simultaneous(pan, Gesture.Native());
-  }, [currentIndex, router, withNativeScroll]);
+  }, [consumeSwipe, currentIndex, router, withNativeScroll]);
 
   // IMPORTANT: do NOT default `style` to `{ flex: 1 }`. Consumers that
   // wrap full-screen content pass `{ flex: 1 }` explicitly; consumers that

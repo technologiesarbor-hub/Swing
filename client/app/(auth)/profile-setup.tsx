@@ -45,14 +45,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
+import { BlockingLoader } from '@/components/blocking-loader';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useAuth } from '@/lib/auth-context';
+import { humanizeAuthError, useAuth } from '@/lib/auth-context';
+import { isLocalImageUri } from '@/lib/upload-avatar';
+import { authUserToLocalPatch } from '@/lib/profile-from-auth';
 import { useUserSettings } from '@/lib/user-settings-context';
 import {
   isUsernameAvailable,
-  markUsernameTaken,
   suggestAvailableUsername,
   validateUsername,
 } from '@/lib/usernames';
@@ -85,7 +87,7 @@ export default function ProfileSetupScreen() {
   const router = useRouter();
   const { user, updateUser } = useUserSettings();
   const auth = useAuth();
-  const { markProfileComplete } = auth;
+  const { saveProfile, uploadAvatar } = auth;
 
   const [avatarUri, setAvatarUri] = useState<string | undefined>(user.avatarUri);
   const [name, setName] = useState('');
@@ -240,23 +242,32 @@ export default function ProfileSetupScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
-      await markUsernameTaken(claimedUsername);
-
-      const email =
-        auth.status === 'signed-in' ? auth.user.email : user.email;
-
-      updateUser({
+      const dobIso = dob!.toISOString().slice(0, 10);
+      let saved = await saveProfile({
         name: name.trim(),
         username: claimedUsername,
-        avatarUri,
-        dob: dob!.toISOString().slice(0, 10),
-        age: ageFromDob(dob!),
+        dob: dobIso,
         gender: gender ?? undefined,
-        email,
+        profileComplete: true,
       });
-      await markProfileComplete();
+
+      if (avatarUri && isLocalImageUri(avatarUri)) {
+        saved = await uploadAvatar(avatarUri);
+      }
+
+      updateUser({
+        ...authUserToLocalPatch(saved),
+        avatarUri: saved.avatarUrl ?? avatarUri,
+        age: ageFromDob(dob!),
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)');
+    } catch (e) {
+      Alert.alert(
+        'Could not save profile',
+        humanizeAuthError(e, 'Something went wrong. Try again.'),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setSubmitting(false);
     }
@@ -275,6 +286,7 @@ export default function ProfileSetupScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!submitting && !suggesting}
         >
           <ThemedText style={styles.title}>Tell us about you</ThemedText>
           <ThemedText style={[styles.subtitle, { color: c.textMuted }]}>
@@ -528,6 +540,11 @@ export default function ProfileSetupScreen() {
           onChange={onDobChange}
         />
       ) : null}
+
+      <BlockingLoader
+        visible={submitting || suggesting}
+        message={submitting ? 'Saving profile…' : 'Finding a username…'}
+      />
     </SafeAreaView>
   );
 }

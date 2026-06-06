@@ -35,17 +35,24 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AuthHeroCarousel } from '@/components/auth-hero-carousel';
+import { BlockingLoader } from '@/components/blocking-loader';
 import { GoogleLogo } from '@/components/google-logo';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { humanizeAuthError, useAuth } from '@/lib/auth-context';
+import { useGoogleSignIn } from '@/lib/google-auth';
+import {
+  humanizeGoogleError,
+  isGoogleSignInCancelled,
+} from '@/lib/google-user-messages';
 
 export default function SignupScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const router = useRouter();
   const { signUpWithEmail, signInWithGoogle } = useAuth();
+  const google = useGoogleSignIn();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -70,15 +77,23 @@ export default function SignupScreen() {
 
   const handleGoogle = async () => {
     setError(null);
+    if (google.setupError) {
+      setError(google.setupError);
+      return;
+    }
     setSubmitting(true);
     try {
-      const user = await signInWithGoogle();
+      const idToken = await google.signIn();
+      const user = await signInWithGoogle(idToken);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(
         user.profileComplete ? '/(tabs)' : '/(auth)/profile-setup',
       );
     } catch (e) {
-      setError(humanizeAuthError(e, 'Could not sign in with Google.'));
+      if (isGoogleSignInCancelled(e)) return;
+      setError(
+        humanizeGoogleError(e, humanizeAuthError(e, 'Could not sign in with Google.')),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -100,6 +115,7 @@ export default function SignupScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={!submitting}
         >
           {/* ── Hero carousel ─────────────────────────────────────── */}
           <View style={styles.heroWrap}>
@@ -242,6 +258,8 @@ export default function SignupScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <BlockingLoader visible={submitting} message="Please wait…" />
     </SafeAreaView>
   );
 }

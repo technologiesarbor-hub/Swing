@@ -26,10 +26,12 @@ export type ChatMessage = {
   kind: ChatMessageKind;
   /** Text body for `kind === 'text'`; also used as alt-text fallback. */
   text: string;
-  /** Local URI for the picked photo (when `kind === 'image'`). */
+  /** View URL for image media (local while sending, presigned after upload). */
   imageUri?: string;
-  /** Local URI for the recorded voice clip (when `kind === 'audio'`). */
+  /** View URL for voice clip media. */
   audioUri?: string;
+  /** R2 object key — used to refresh expired presigned view URLs. */
+  mediaKey?: string;
   /** Duration of the voice clip in milliseconds. */
   audioDurationMs?: number;
   /** ISO timestamp. */

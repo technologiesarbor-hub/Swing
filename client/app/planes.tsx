@@ -25,6 +25,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
+import { SwipeSafePressable } from '@/components/swipe-safe-pressable';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Radii, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -216,15 +217,14 @@ function PlaneRow({
   })();
 
   return (
-    <Pressable
+    <SwipeSafePressable
       onPress={onPress}
-      style={({ pressed }) => [
+      style={[
         styles.row,
         !isLast && {
           borderBottomColor: c.border,
           borderBottomWidth: StyleSheet.hairlineWidth,
         },
-        pressed && { backgroundColor: c.surfaceAlt },
       ]}
     >
       {/* Recipient avatar — the system always pairs the plane with a
@@ -266,7 +266,7 @@ function PlaneRow({
       </View>
 
       <Ionicons name="chevron-forward" size={16} color={c.textSubtle} />
-    </Pressable>
+    </SwipeSafePressable>
   );
 }
 
